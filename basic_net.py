@@ -24,7 +24,7 @@ class BasicNet1(nn.Module):
         self.use_multi_fc = use_multi_fc
         self.args = args
 
-        if(self.args.dataset=="mnist"):
+        if(self.args.dataset=="mnist" or self.args.dataset=='rmnist'):
             self.convnet = RPS_net_mlp()
         elif(self.args.dataset=="svhn"):
             self.convnet = RPS_net(self.args.num_class)
