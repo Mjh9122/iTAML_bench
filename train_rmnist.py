@@ -134,7 +134,7 @@ def main():
             
         task_info, train_loader, val_loader, test_loader, for_memory = inc_dataset.new_task(memory)
         print(f'Task info {task_info}')
-        print(f'Samples per task in testing set' {inc_dataset.sample_per_task_testing})
+        print(f'Samples per task in testing set {inc_dataset.sample_per_task_testing}')
         args.sample_per_task_testing = inc_dataset.sample_per_task_testing
         
         
