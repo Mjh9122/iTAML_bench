@@ -50,8 +50,8 @@ class args:
     dataset = "rmnist"
     optimizer = 'sgd'
     
-    epochs = 20
-    lr = 0.1
+    epochs = 1
+    lr = 0.01
     train_batch = 256
     test_batch = 256
     workers = 16
@@ -60,7 +60,7 @@ class args:
     gamma = 0.5
     random_classes = False
     validation = 0
-    memory = 2000
+    memory = 20000
     mu = 1
     beta = 0.5
     r = 1
@@ -79,7 +79,6 @@ if use_cuda:
     torch.cuda.manual_seed_all(seed)
 
 def main():
-    print("Running post commit on wsl")
     model = BasicNet1(args, 0).cuda() 
 
 
@@ -134,8 +133,8 @@ def main():
             
             
         task_info, train_loader, val_loader, test_loader, for_memory = inc_dataset.new_task(memory)
-        print(task_info)
-        print(inc_dataset.sample_per_task_testing)
+        print(f'Task info {task_info}')
+        print(f'Samples per task in testing set' {inc_dataset.sample_per_task_testing})
         args.sample_per_task_testing = inc_dataset.sample_per_task_testing
         
         
