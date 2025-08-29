@@ -112,7 +112,7 @@ def main():
         
         if(ses==0):
             torch.save(model.state_dict(), os.path.join(args.savepoint, 'base_model.pth.tar'))
-            args.epochs = 5
+            args.epochs = 1
         if(ses==4):
             args.lr = 0.05
         if(start_sess==ses and start_sess!=0): 
@@ -123,7 +123,7 @@ def main():
             args.sample_per_task_testing = sample_per_task_testing
         
         if ses>0: 
-            args.epochs = 20
+            args.epochs = 1
             path_model=os.path.join(args.savepoint, 'session_'+str(ses-1) + '_model_best.pth.tar')  
             prev_best=torch.load(path_model)
             model.load_state_dict(prev_best)
