@@ -31,13 +31,8 @@ class RMNIST(Dataset):
         image_stack, label_stack, tid_stack = [], [], []
 
         for tid in range(self.n_tasks):
-<<<<<<< HEAD
             images = self.dataset[tid][1][:100, :]
             labels = self.dataset[tid][2][:100]
-=======
-            images = self.dataset[tid][1]
-            labels = self.dataset[tid][2]
->>>>>>> parent of 5224d9e (Revert to mnist like setting)
 
             # Sample subset if needed
             # rand_idx = torch.randperm(images.size(0))[:int(images.size(0) * self.args.dataset_percent)]
