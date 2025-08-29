@@ -85,9 +85,21 @@ class IncrementalDataset:
         return len(self.increments)
     
     def get_same_index(self, target, label, mode="train", memory=None):
+        """ Gets the indices of all targets that appear in label. Adds indices to the memory buffer based on the iTAML memory update rule
+
+        Args:
+            target (_type_): all targets 
+            label (_type_): labels that targets are matched to
+            mode (str, optional): Does nothing (only referenced in commented code). Defaults to "train".
+            memory (_type_, optional): Memory buffer for meta learning. Defaults to None.
+        Returns:
+            Tuple[List, Tuple[List, List]]: all indices for in memory, (all indices of targets in labels, all labels ) 
+        """
+
         label_indices = []
         label_targets = []
 
+        # Collect all target indices that appear in label
         for i in range(len(target)):
             if int(target[i]) in label:
                 label_indices.append(i)
@@ -97,7 +109,8 @@ class IncrementalDataset:
 #         if(self.args.overflow and not(mode=="test")):
 #             memory_indices, memory_targets = memory
 #             return memory_indices, memory
-            
+        
+        # Add indices to memory buffer (they are selected later)
         if memory is not None:
             memory_indices, memory_targets = memory
             memory_indices2 = np.tile(memory_indices, (self.args.mu,))
@@ -108,12 +121,24 @@ class IncrementalDataset:
         return all_indices, for_memory
     
     def get_same_index_test_chunk(self, target, label, mode="test", memory=None):
+        """Collect all indices of targets who appear in tasks in label
+
+        Args:
+            target (_type_): All targets
+            label (_type_): Labels to be matched on
+            mode (str, optional): Does nothing. Defaults to "test".
+            memory (_type_, optional): Does nothing. Defaults to None.
+
+        Returns:
+            Tuple[List, List]: label indices, label targets
+        """
         label_indices = []
         label_targets = []
         
         np_target = np.array(target, dtype="uint32")
         np_indices = np.array(list(range(len(target))), dtype="uint32")
 
+        # For each task, collect all indices where classes in that task appear
         for t in range(len(label)//self.args.class_per_task):
             task_idx = []
             for class_id in label[t*self.args.class_per_task: (t+1)*self.args.class_per_task]:
@@ -133,7 +158,11 @@ class IncrementalDataset:
     
 
     def new_task(self, memory=None):
-        
+        """ Creates a new task
+
+        Args:
+            memory (_type_, optional): indices of samples in memory. Defaults to None.
+        """
         print(self._current_task)
         print(self.increments)
         min_class = sum(self.increments[:self._current_task])
