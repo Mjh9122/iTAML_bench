@@ -51,7 +51,7 @@ class args:
     optimizer = 'sgd'
     
     epochs = 1
-    lr = 0.1
+    lr = 0.01
     train_batch = 256
     test_batch = 256
     workers = 16
@@ -60,7 +60,7 @@ class args:
     gamma = 0.5
     random_classes = False
     validation = 0
-    memory = 2000
+    memory = 20000
     mu = 1
     beta = 0.5
     r = 1
