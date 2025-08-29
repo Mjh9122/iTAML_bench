@@ -35,7 +35,8 @@ import collections
 
 from basic_net import *
 from learner_task_itaml import Learner
-import incremental_dataloader as data
+#import incremental_dataloader as data
+import rmnist_dataloader as data
 
 class args:
 
