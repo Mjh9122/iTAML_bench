@@ -30,9 +30,9 @@ class RMNIST(Dataset):
 
         image_stack, label_stack, tid_stack = [], [], []
 
-        for tid in range(1): #range(self.n_tasks):
-            images = self.dataset[tid][1]
-            labels = self.dataset[tid][2]
+        for tid in range(self.n_tasks):
+            images = self.dataset[tid][1][:100, :]
+            labels = self.dataset[tid][2][:100]
 
             # Sample subset if needed
             # rand_idx = torch.randperm(images.size(0))[:int(images.size(0) * self.args.dataset_percent)]
