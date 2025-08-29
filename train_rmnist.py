@@ -79,7 +79,7 @@ if use_cuda:
     torch.cuda.manual_seed_all(seed)
 
 def main():
-
+    print("Running post commit on wsl")
     model = BasicNet1(args, 0).cuda() 
 
 
