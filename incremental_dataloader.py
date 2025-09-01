@@ -105,7 +105,14 @@ class IncrementalDataset:
                 label_indices.append(i)
                 label_targets.append(target[i])
         for_memory = (label_indices.copy(),label_targets.copy())
-        
+       
+        target_np = np.array(target, dtype = int)
+        sample_indices = np.where(np.isin(target_np, label))[0]
+        sample_targets = target_np[sample_indices]
+        #for_memory2 = ([int(i) for i in sample_indices], [torch.tensor(i) for i in sample_targets])
+
+        assert all([i == j for i, j in zip(sample_indices, label_indices)])
+        assert all([i == j for i, j in zip(sample_targets, label_targets)])       
 #         if(self.args.overflow and not(mode=="test")):
 #             memory_indices, memory_targets = memory
 #             return memory_indices, memory
@@ -154,6 +161,17 @@ class IncrementalDataset:
                 self.sample_per_task_testing[t] = len(task_idx)
         label_indices = np.array(label_indices, dtype="uint32")
         label_indices.ravel()
+
+
+        target_np = np.array(target, dtype = "uint32")
+        sample_indices = np.where(np.isin(target_np, label))[0]
+        sample_targets = list(target_np[sample_indices])
+
+        assert all([i == j for i, j in zip(sample_indices, sorted(label_indices))])
+        
+        old_target_mapping = dict(zip(label_indices, label_targets))
+        reordered = np.array([old_target_mapping[i] for i in sample_indices]) 
+        assert all([i == j for i, j in zip(sample_targets, reordered)])
         return list(label_indices), label_targets
     
 
