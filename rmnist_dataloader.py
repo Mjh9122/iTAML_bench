@@ -84,77 +84,34 @@ class IncrementalDataset:
     def n_tasks(self):
         return len(self.increments)
     
-    def get_same_index(self, target, label, mode="train", memory=None):
-        """ Gets the indices of all targets that appear in label. Adds indices to the memory buffer based on the iTAML memory update rule
-
-        Args:
-            target (_type_): all targets 
-            label (_type_): labels that targets are matched to
-            mode (str, optional): Does nothing (only referenced in commented code). Defaults to "train".
-            memory (_type_, optional): Memory buffer for meta learning. Defaults to None.
-        Returns:
-            Tuple[List, Tuple[List, List]]: all indices for in memory, (all indices of targets in labels, all labels ) 
-        """
-
-        label_indices = []
-        label_targets = []
-
-        # Collect all target indices that appear in label
-        for i in range(len(target)):
-            if int(target[i]) in label:
-                label_indices.append(i)
-                label_targets.append(target[i])
-        for_memory = (label_indices.copy(),label_targets.copy())
+    def get_train_indices(self, task_ids, task_list, memory=None):
+        task_ids_np = np.array(task_ids, dtype = int)
+        sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
+        sample_tasks = task_ids_np[sample_indices]
         
-#         if(self.args.overflow and not(mode=="test")):
-#             memory_indices, memory_targets = memory
-#             return memory_indices, memory
+        sample_indices = [int(i) for i in sample_indices] 
+        sample_tasks = [torch.tensor(i) for i in sample_tasks]
+
+        for_memory = (sample_indices, sample_tasks)
         
         # Add indices to memory buffer (they are selected later)
         if memory is not None:
             memory_indices, memory_targets = memory
             memory_indices2 = np.tile(memory_indices, (self.args.mu,))
-            all_indices = np.concatenate([memory_indices2,label_indices])
+            all_indices = np.concatenate([memory_indices2, sample_indices])
         else:
-            all_indices = label_indices
+            all_indices = sample_indices
             
         return all_indices, for_memory
     
-    def get_same_index_test_chunk(self, target, label, mode="test", memory=None):
-        """Collect all indices of targets who appear in tasks in label
+    def get_test_indices(self, task_ids, task_list, memory=None):
+        task_ids_np = np.array(task_ids, dtype = "uint32")
+        sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
+        sample_tasks = list(task_ids_np[sample_indices])
+        tasks, counts = np.unique(sample_tasks, return_counts = True)
+        self.sample_per_task_testing = dict(zip(tasks, counts))
 
-        Args:
-            target (_type_): All targets
-            label (_type_): Labels to be matched on
-            mode (str, optional): Does nothing. Defaults to "test".
-            memory (_type_, optional): Does nothing. Defaults to None.
-
-        Returns:
-            Tuple[List, List]: label indices, label targets
-        """
-        label_indices = []
-        label_targets = []
-        
-        np_target = np.array(target, dtype="uint32")
-        np_indices = np.array(list(range(len(target))), dtype="uint32")
-
-        # For each task, collect all indices where classes in that task appear
-        for t in range(len(label)//self.args.class_per_task):
-            task_idx = []
-            for class_id in label[t*self.args.class_per_task: (t+1)*self.args.class_per_task]:
-                idx = np.where(np_target==class_id)[0]
-                task_idx.extend(list(idx.ravel()))
-            task_idx = np.array(task_idx, dtype="uint32")
-            task_idx.ravel()
-            random.shuffle(task_idx)
-
-            label_indices.extend(list(np_indices[task_idx]))
-            label_targets.extend(list(np_target[task_idx]))
-            if(t not in self.sample_per_task_testing.keys()):
-                self.sample_per_task_testing[t] = len(task_idx)
-        label_indices = np.array(label_indices, dtype="uint32")
-        label_indices.ravel()
-        return list(label_indices), label_targets
+        return list(sample_indices)
     
 
     def new_task(self, memory=None):
@@ -163,24 +120,16 @@ class IncrementalDataset:
         Args:
             memory (_type_, optional): indices of samples in memory. Defaults to None.
         """
-        print(self._current_task)
-        print(self.increments)
-        min_class = sum(self.increments[:self._current_task])
-        max_class = sum(self.increments[:self._current_task + 1])
-#         if(self.args.overflow):
-#             min_class = 0
-#             max_class = sum(self.increments)
+        print(f'Current task {self._current_task}')
         
-        train_indices, for_memory = self.get_same_index(self.train_dataset.targets, list(range(min_class, max_class)), mode="train", memory=memory)
-        test_indices, _ = self.get_same_index_test_chunk(self.test_dataset.targets, list(range(max_class)), mode="test")
+        train_indices, for_memory = self.get_train_indices(self.train_dataset.tids, [self._current_task], memory=memory)
+        test_indices = self.get_test_indices(self.test_dataset.tids, list(range(self._current_task + 1)), memory=memory)
 
         self.train_data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self._batch_size,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(train_indices, True))
         self.test_data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=self.args.test_batch,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(test_indices, False))
 
         
         task_info = {
-            "min_class": min_class,
-            "max_class": max_class,
             "task": self._current_task,
             "max_task": len(self.increments),
             "n_train_data": len(train_indices),
@@ -222,10 +171,10 @@ class IncrementalDataset:
         return data_loader
     
     
-    def get_custom_loader_class(self, class_id, mode="train", batch_size=10, shuffle=False):
+    def get_custom_loader_class(self, task_id, mode="train", batch_size=10, shuffle=False):
         
         if(mode=="train"):
-            train_indices, for_memory = self.get_same_index(self.train_dataset.targets, class_id, mode="train", memory=None)
+            train_indices, for_memory = self.get_test_indices(self.train_dataset.task_id, task_id, mode="train", memory=None)
             data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size, shuffle=False, num_workers=4, sampler=SubsetRandomSampler(train_indices, True))
         else: 
             test_indices, _ = self.get_same_index(self.test_dataset.targets, class_id, mode="test")
@@ -292,33 +241,36 @@ class IncrementalDataset:
     
     def get_memory(self, memory, for_memory, seed=1):
         random.seed(seed)
-        memory_per_task = self.args.memory // ((self.args.sess+1)*self.args.class_per_task)
-        self._data_memory, self._targets_memory = np.array([]), np.array([])
+        memory_per_task = self.args.memory // (self.args.sess+1)
+        self._data_memory, self._tasks_memory = np.array([]), np.array([])
         mu = 1
         
         #update old memory
         if(memory is not None):
-            data_memory, targets_memory = memory
+            data_memory, tasks_memory = memory
             data_memory = np.array(data_memory, dtype="int32")
-            targets_memory = np.array(targets_memory, dtype="int32")
-            for class_idx in range(self.args.class_per_task*(self.args.sess)):
-                idx = np.where(targets_memory==class_idx)[0][:memory_per_task]
+            tasks_memory = np.array(tasks_memory, dtype="int32")
+            for task_idx in range(self.args.sess + 1):
+                idx = np.where(tasks_memory==task_idx)[0][:memory_per_task]
                 self._data_memory = np.concatenate([self._data_memory, np.tile(data_memory[idx], (mu,))   ])
-                self._targets_memory = np.concatenate([self._targets_memory, np.tile(targets_memory[idx], (mu,))    ])
+                self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(tasks_memory[idx], (mu,))    ])
                 
                 
         #add new classes to the memory
-        new_indices, new_targets = for_memory
+        new_indices, new_tasks = for_memory
 
         new_indices = np.array(new_indices, dtype="int32")
-        new_targets = np.array(new_targets, dtype="int32")
-        for class_idx in range(self.args.class_per_task*(self.args.sess),self.args.class_per_task*(1+self.args.sess)):
-            idx = np.where(new_targets==class_idx)[0][:memory_per_task]
-            self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))   ])
-            self._targets_memory = np.concatenate([self._targets_memory, np.tile(new_targets[idx],(mu,))    ])
+        new_tasks = np.array(new_tasks, dtype="int32")
+        idx = np.where(new_tasks==self.args.sess)[0][:memory_per_task]
+        self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))   ])
+        self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(new_tasks[idx],(mu,))    ])
             
-        print(len(self._data_memory))
-        return list(self._data_memory.astype("int32")), list(self._targets_memory.astype("int32"))
+        print(f'Length of memory: {len(self._data_memory)}')
+        tasks, counts = np.unique(self._tasks_memory, return_counts = True) 
+        task_count_dict = {int(i):int(j) for i, j in zip(tasks, counts)}
+        print(f'Samples per task in memory: {task_count_dict}')
+
+        return list(self._data_memory.astype("int32")), list(self._tasks_memory.astype("int32"))
     
 def _get_datasets(dataset_names):
     return [_get_dataset(dataset_name) for dataset_name in dataset_names.split("-")]
