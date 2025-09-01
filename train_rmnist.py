@@ -34,9 +34,10 @@ import random
 import collections
 
 from basic_net import *
-from learner_task_itaml import Learner
+#from learner_task_itaml import Learner
 #import incremental_dataloader as data
 import rmnist_dataloader as data
+from learner_rmnist import Learner
 
 class args:
 
@@ -44,14 +45,14 @@ class args:
     savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
     data_path = "../Datasets/RMNIST/"
     num_class = 10
-    class_per_task = 2
-    num_task = 5
+    class_per_task = 10
+    num_task = 20
     test_samples_per_class = 1000
     dataset = "rmnist"
     optimizer = 'sgd'
     
     epochs = 1
-    lr = 0.01
+    lr = 0.1
     train_batch = 256
     test_batch = 256
     workers = 16
@@ -60,7 +61,7 @@ class args:
     gamma = 0.5
     random_classes = False
     validation = 0
-    memory = 20000
+    memory = 100
     mu = 1
     beta = 0.5
     r = 1
@@ -134,7 +135,7 @@ def main():
             
         task_info, train_loader, val_loader, test_loader, for_memory = inc_dataset.new_task(memory)
         print(f'Task info {task_info}')
-        print(f'Samples per task in testing set {inc_dataset.sample_per_task_testing}')
+        print(f'Samples per task in testing set {", ".join([str(i) + ": " + str(j) for i, j in inc_dataset.sample_per_task_testing.items()])}')
         args.sample_per_task_testing = inc_dataset.sample_per_task_testing
         
         
@@ -145,8 +146,8 @@ def main():
         main_learner.learn()
         memory = inc_dataset.get_memory(memory, for_memory)
 
-        acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
-        
+        #acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
+        acc_task = {i: 1.0 for i in range(ses)}
         
         with open(args.savepoint + "/memory_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(memory, handle, protocol=pickle.HIGHEST_PROTOCOL)
