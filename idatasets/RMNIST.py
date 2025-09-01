@@ -48,8 +48,7 @@ class RMNIST(Dataset):
         self.targets = torch.cat(label_stack)
         self.tids = torch.cat(tid_stack)        
 
-        print(f"Total images: {self.images.shape[0]}, Total labels: {self.targets.shape[0]}, Total tids: {self.tids.shape[0]}")
-        print(np.unique(self.targets.numpy(), return_counts = True))
+        self.print_dataset_stats()
 
     def __len__(self):
         return self.images.shape[0] 
@@ -64,3 +63,12 @@ class RMNIST(Dataset):
             img = self.transform(img)
 
         return img, target
+    
+
+    def print_dataset_stats(self):
+        print(f"Printing RMNIST {'Train' if self.train else 'Test'} Dataset Stats")
+        print(f"Total images: {self.images.shape[0]}")
+        print(f"Images per class per task")
+        img_indices = np.where(self.tids == 0)
+        tgt, cnt = np.unique(self.targets[img_indices], return_counts = True)
+        print(f"{', '.join([str(t) + ': ' + str(c) for t, c in zip(tgt, cnt)])}")
