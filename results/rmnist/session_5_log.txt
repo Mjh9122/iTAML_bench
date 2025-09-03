@@ -1,0 +1,2 @@
+Learning Rate	Train Loss	Valid Loss	Train Acc.	Valid Acc.	Best Acc	
+0.050000	0.051754	0.035876	92.995294	94.350000	0.000000	
