@@ -96,10 +96,12 @@ class Learner():
         top5 = AverageMeter()
         end = time.time()
         
-        bi = self.args.class_per_task*(1+self.args.sess)
+        #bi = self.args.class_per_task*(1+self.args.sess)
+        # All classes always present
+        bi = self.args.num_class
         bar = Bar('Processing', max=len(self.trainloader))
         
-        for batch_idx, (inputs, targets) in enumerate(self.trainloader):
+        for batch_idx, (inputs, targets, tasks) in enumerate(self.trainloader):
             # measure data loading time
             data_time.update(time.time() - end)
             sessions = []
@@ -114,16 +116,16 @@ class Learner():
 
             reptile_grads = {}            
             np_targets = targets.detach().cpu().numpy()
+            np_tasks = tasks.detach().cpu().numpy()
             num_updates = 0
             
             outputs2, _ = model(inputs)
             
             model_base = copy.deepcopy(model)
             for task_idx in range(1+self.args.sess):
-                idx = np.where((np_targets>= task_idx*self.args.class_per_task) & (np_targets < (task_idx+1)*self.args.class_per_task))[0]
-                ai = self.args.class_per_task*task_idx
-                bi = self.args.class_per_task*(task_idx+1)
-                
+                # idx is all samples from the current task
+                idx = np.where(np_tasks == task_idx)[0]
+
                 ii = 0
                 if(len(idx)>0):
                     sessions.append([task_idx, ii])
@@ -135,17 +137,14 @@ class Learner():
                     class_targets_one_hot= targets_one_hot[idx]
                     class_targets = targets[idx]
                     
-                    if(self.args.sess==task_idx and self.args.sess==4 and self.args.dataset=="svhn"):
-                        self.args.r = 4
-                    else:
-                        self.args.r = 1
+                    self.args.r = 1
                         
                     for kr in range(self.args.r):
                         _, class_outputs = model(class_inputs)
 
                         class_tar_ce=class_targets_one_hot.clone()
                         class_pre_ce=class_outputs.clone()
-                        loss = F.binary_cross_entropy_with_logits(class_pre_ce[:, ai:bi], class_tar_ce[:, ai:bi]) 
+                        loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce) 
                         self.optimizer.zero_grad()
                         loss.backward()
                         self.optimizer.step()
@@ -173,7 +172,7 @@ class Learner():
             
         
             # measure accuracy and record loss
-            prec1, prec5 = accuracy(output=outputs2.data[:,0:bi], target=targets.cuda().data, topk=(1, 1))
+            prec1, prec5 = accuracy(output=outputs2, target=targets.cuda().data, topk=(1, 1))
             losses.update(loss.item(), inputs.size(0))
             top1.update(prec1.item(), inputs.size(0))
             top5.update(prec5.item(), inputs.size(0))
@@ -204,17 +203,15 @@ class Learner():
         losses = AverageMeter()
         top1 = AverageMeter()
         top5 = AverageMeter()
-        class_acc = {}
-        
+        task_class_counts = np.zeros((self.args.sess + 1, self.args.num_class))
+        task_class_correct = np.zeros((self.args.sess + 1, self.args.num_class))
         
         # switch to evaluate mode
         model.eval()
-        ai = 0
-        bi = self.args.class_per_task*(self.args.sess+1)
         
         end = time.time()
         bar = Bar('Processing', max=len(self.testloader))
-        for batch_idx, (inputs, targets) in enumerate(self.testloader):
+        for batch_idx, (inputs, targets, tasks) in enumerate(self.testloader):
             # measure data loading time
             data_time.update(time.time() - end)
 #             print(targets)
@@ -228,9 +225,9 @@ class Learner():
             inputs, targets_one_hot, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets_one_hot) ,torch.autograd.Variable(targets)
 
             outputs2, outputs = model(inputs)
-            loss = F.binary_cross_entropy_with_logits(outputs[ai:bi], targets_one_hot[ai:bi])
+            loss = F.binary_cross_entropy_with_logits(outputs, targets_one_hot)
                     
-            prec1, prec5 = accuracy(outputs2.data[:,0:self.args.class_per_task*(1+self.args.sess)], targets.cuda().data, topk=(1, 1))
+            prec1, prec5 = accuracy(outputs2.data, targets.cuda().data, topk=(1, 1))
 
 
             losses.update(loss.item(), inputs.size(0))
@@ -245,13 +242,13 @@ class Learner():
             correct = pred.eq(targets.view(1, -1).expand_as(pred)).view(-1) 
             correct_k = float(torch.sum(correct).detach().cpu().numpy())
 
-            for i,p in enumerate(pred.view(-1)):
-                key = int(p.detach().cpu().numpy())
-                if(correct[i]==1):
-                    if(key in class_acc.keys()):
-                        class_acc[key] += 1
-                    else:
-                        class_acc[key] = 1
+            for i, p in enumerate(pred.view(-1)):
+                task_val = int(tasks[i].detach().cpu().numpy())
+                class_val = int(p.detach().cpu().numpy())
+
+                task_class_counts[task_val, class_val] += 1
+                if correct[i]:
+                    task_class_correct[task_val, class_val] += 1
                         
                         
             # plot progress
@@ -268,15 +265,13 @@ class Learner():
         self.test_loss= losses.avg;self.test_acc= top1.avg
             
         acc_task = {}
-        for i in range(self.args.sess+1):
-            acc_task[i] = 0
-            for j in range(self.args.class_per_task):
-                try:
-                    acc_task[i] += class_acc[i*self.args.class_per_task+j]/self.args.sample_per_task_testing[i] * 100
-                except:
-                    pass
+        for i in range(self.args.sess + 1):
+            if task_class_counts[i].sum() == 0:
+                acc_task[i] = np.nan
+            else:
+                acc_task[i] = 100 * task_class_correct[i].sum()/task_class_counts[i].sum()
         print("\n".join([str(acc_task[k]).format(".4f") for k in acc_task.keys()]) )    
-        print(class_acc)
+        #print(class_acc)
 
         
         with open(self.args.savepoint + "/acc_task_test_"+str(self.args.sess)+".pickle", 'wb') as handle:
@@ -290,18 +285,19 @@ class Learner():
         
         meta_models = []   
         base_model = copy.deepcopy(model)
-        class_acc = {}
+        class_correct = np.zeros((self.args.sess + 1, self.args.num_class))
+        class_total = np.zeros((self.args.sess + 1, self.args.num_class)) 
         meta_task_test_list = {}
         for task_idx in range(self.args.sess+1):
             
-            memory_data, memory_target = memory
+            memory_data, memory_tasks = memory
             memory_data = np.array(memory_data, dtype="int32")
-            memory_target = np.array(memory_target, dtype="int32")
+            memory_tasks = np.array(memory_tasks, dtype="int32")
             
             
-            mem_idx = np.where((memory_target>= task_idx*self.args.class_per_task) & (memory_target < (task_idx+1)*self.args.class_per_task))[0]
+            mem_idx = np.where(memory_tasks == task_idx)[0]
             meta_memory_data = memory_data[mem_idx]
-            meta_memory_target = memory_target[mem_idx]
+            meta_memory_tasks = memory_tasks[mem_idx]
             meta_model = copy.deepcopy(base_model)
             
             meta_loader = inc_dataset.get_custom_loader_idx(meta_memory_data, mode="train", batch_size=64)
@@ -309,18 +305,15 @@ class Learner():
             meta_optimizer = optim.Adam(meta_model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
             
             meta_model.train()
-            
-            ai = self.args.class_per_task*task_idx
-            bi = self.args.class_per_task*(task_idx+1)
-            bb = self.args.class_per_task*(self.args.sess+1)
+
             print("Training meta tasks:\t" , task_idx)
                 
             #META training
             if(self.args.sess!=0):
                 for ep in range(1):
                     bar = Bar('Processing', max=len(meta_loader))
-                    for batch_idx, (inputs, targets) in enumerate(meta_loader):
-                        targets_one_hot = torch.FloatTensor(inputs.shape[0], (task_idx+1)*self.args.class_per_task)
+                    for batch_idx, (inputs, targets, _) in enumerate(meta_loader):
+                        targets_one_hot = torch.FloatTensor(inputs.shape[0], self.args.num_class)
                         targets_one_hot.zero_()
                         targets_one_hot.scatter_(1, targets[:,None], 1)
                         target_set = np.unique(targets)
@@ -331,10 +324,9 @@ class Learner():
 
                         _, outputs = meta_model(inputs)
                         class_pre_ce=outputs.clone()
-                        class_pre_ce = class_pre_ce[:, ai:bi]
                         class_tar_ce=targets_one_hot.clone()
 
-                        loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce[:, ai:bi])
+                        loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce)
 
                         meta_optimizer.zero_grad()
                         loss.backward()
@@ -350,84 +342,64 @@ class Learner():
             
             #META testing with given knowledge on task
             meta_model.eval()   
-            for cl in range(self.args.class_per_task):
-                class_idx = cl + self.args.class_per_task*task_idx
-                loader = inc_dataset.get_custom_loader_class([class_idx], mode="test", batch_size=10)
-
-                for batch_idx, (inputs, targets) in enumerate(loader):
-                    targets_task = targets-self.args.class_per_task*task_idx
-
-                    if self.use_cuda:
-                        inputs, targets_task = inputs.cuda(),targets_task.cuda()
-                    inputs, targets_task = torch.autograd.Variable(inputs), torch.autograd.Variable(targets_task)
-
-                    _, outputs = meta_model(inputs)
-
-                    if self.use_cuda:
-                        inputs, targets = inputs.cuda(),targets_task.cuda()
-                    inputs, targets_task = torch.autograd.Variable(inputs), torch.autograd.Variable(targets_task)
-
-                    pred = torch.argmax(outputs[:,ai:bi], 1, keepdim=False)
-                    pred = pred.view(1,-1)
-                    correct = pred.eq(targets_task.view(1, -1).expand_as(pred)).view(-1) 
-
-                    correct_k = float(torch.sum(correct).detach().cpu().numpy())
-
-                    for i,p in enumerate(pred.view(-1)):
-                        key = int(p.detach().cpu().numpy())
-                        key = key + self.args.class_per_task*task_idx
-                        if(correct[i]==1):
-                            if(key in class_acc.keys()):
-                                class_acc[key] += 1
-                            else:
-                                class_acc[key] = 1
-                                
-
-            
-#           META testing - no knowledge on task
-            meta_model.eval()   
-            for batch_idx, (inputs, targets) in enumerate(self.testloader):
+            loader = inc_dataset.get_custom_loader_task([task_idx], mode="test", batch_size=10)
+            for batch_idx, (inputs, targets, _) in enumerate(loader):
                 if self.use_cuda:
                     inputs, targets = inputs.cuda(), targets.cuda()
                 inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
-                             
-                _, outputs = meta_model(inputs)
-                outputs_base, _ = self.model(inputs)
-                task_ids = outputs
 
-                task_ids = task_ids.detach().cpu()
-                outputs = outputs.detach().cpu()
-                outputs = outputs.detach().cpu()
-                outputs_base = outputs_base.detach().cpu()
+                _, outputs = meta_model(inputs)
+
+                pred = torch.argmax(outputs, 1, keepdim=False)
+                pred = pred.view(1,-1)
+                correct = pred.eq(targets.view(1, -1).expand_as(pred)).view(-1) 
                 
-                bs = inputs.size()[0]
-                for i,t in enumerate(list(range(bs))):
-                    j = batch_idx*self.args.test_batch + i
-                    output_base_max = []
-                    for si in range(self.args.sess+1):
-                        sj = outputs_base[i][si* self.args.class_per_task:(si+1)* self.args.class_per_task]
-                        sq = torch.max(sj)
-                        output_base_max.append(sq)
+                for i,p in enumerate(pred.view(-1)):
+                    key = int(p.detach().cpu().numpy())
+                    class_total[task_idx, key] += 1
+                    if(correct[i]==1):
+                        class_correct[task_idx, key] += 1 
+
+            
+# #           META testing - no knowledge on task
+#             meta_model.eval()   
+#             for batch_idx, (inputs, targets, tasks) in enumerate(self.testloader):
+#                 if self.use_cuda:
+#                     inputs, targets = inputs.cuda(), targets.cuda()
+#                 inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+                             
+#                 _, outputs = meta_model(inputs)
+#                 outputs_base, _ = self.model(inputs)
+#                 task_ids = outputs
+
+#                 task_ids = task_ids.detach().cpu()
+#                 outputs = outputs.detach().cpu()
+#                 outputs = outputs.detach().cpu()
+#                 outputs_base = outputs_base.detach().cpu()
+                
+#                 batch_size = inputs.size()[0]
+#                 for i in range(batch_size):
+#                     j = batch_idx*self.args.test_batch + i
+#                     output_base_max = []
+#                     for si in range(self.args.sess+1):
+#                         sj = outputs_base[i][si* self.args.class_per_task:(si+1)* self.args.class_per_task]
+#                         sq = torch.max(sj)
+#                         output_base_max.append(sq)
                     
-                    task_argmax = np.argsort(outputs[i][ai:bi])[-5:]
-                    task_max = outputs[i][ai:bi][task_argmax]
+#                     task_argmax = np.argsort(outputs[i][ai:bi])[-5:]
+#                     task_max = outputs[i][ai:bi][task_argmax]
                     
-                    if ( j not in meta_task_test_list.keys()):
-                        meta_task_test_list[j] = [[task_argmax,task_max, output_base_max,targets[i]]]
-                    else:
-                        meta_task_test_list[j].append([task_argmax,task_max, output_base_max,targets[i]])
-            del meta_model
-                                
-        acc_task = {}
-        for i in range(self.args.sess+1):
-            acc_task[i] = 0
-            for j in range(self.args.class_per_task):
-                try:
-                    acc_task[i] += class_acc[i*self.args.class_per_task+j]/self.args.sample_per_task_testing[i] * 100
-                except:
-                    pass
-        print("\n".join([str(acc_task[k]).format(".4f") for k in acc_task.keys()]) )    
-        print(class_acc)
+#                     if ( j not in meta_task_test_list.keys()):
+#                         meta_task_test_list[j] = [[task_argmax,task_max, output_base_max,targets[i]]]
+#                     else:
+#                         meta_task_test_list[j].append([task_argmax,task_max, output_base_max,targets[i]])
+#             del meta_model
+
+#         class_accuracies = class_correct/class_total
+#         acc_task = class_correct.sum(axis = 1)/class_total.sum(axis = 1)
+
+        #print(class_accuracies)    
+        print(acc_task)
         
         with open(self.args.savepoint + "/meta_task_test_list_"+str(task_idx)+".pickle", 'wb') as handle:
             pickle.dump(meta_task_test_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -435,35 +407,6 @@ class Learner():
         return acc_task
         
 
-    def get_memory(self, memory, for_memory, seed=1):
-        random.seed(seed)
-        memory_per_task = self.args.memory // ((self.args.sess+1)*self.args.class_per_task)
-        self._data_memory, self._targets_memory = np.array([]), np.array([])
-        mu = 1
-        
-        #update old memory
-        if(memory is not None):
-            data_memory, targets_memory = memory
-            data_memory = np.array(data_memory, dtype="int32")
-            targets_memory = np.array(targets_memory, dtype="int32")
-            for class_idx in range(self.args.class_per_task*(self.args.sess)):
-                idx = np.where(targets_memory==class_idx)[0][:memory_per_task]
-                self._data_memory = np.concatenate([self._data_memory, np.tile(data_memory[idx], (mu,))   ])
-                self._targets_memory = np.concatenate([self._targets_memory, np.tile(targets_memory[idx], (mu,))    ])
-                
-                
-        #add new classes to the memory
-        new_indices, new_targets = for_memory
-
-        new_indices = np.array(new_indices, dtype="int32")
-        new_targets = np.array(new_targets, dtype="int32")
-        for class_idx in range(self.args.class_per_task*(self.args.sess),self.args.class_per_task*(1+self.args.sess)):
-            idx = np.where(new_targets==class_idx)[0][:memory_per_task]
-            self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))   ])
-            self._targets_memory = np.concatenate([self._targets_memory, np.tile(new_targets[idx],(mu,))    ])
-            
-        print(len(self._data_memory))
-        return list(self._data_memory.astype("int32")), list(self._targets_memory.astype("int32"))
 
     def save_checkpoint(self, state, is_best, checkpoint, filename):
         if is_best:
