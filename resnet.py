@@ -155,16 +155,15 @@ class RPS_net_mlp(nn.Module):
 
         def init(self):
             """Initialize all parameters"""
-            self.mlp1 = nn.Linear(784, 400)
-            self.mlp2 = nn.Linear(400, 400)
+            self.mlp1 = nn.Linear(784, 100)
+            self.mlp2 = nn.Linear(100, 100)
             self.relu = nn.ReLU()
-            self.fc = nn.Linear(400, 10, bias=False)
+            self.fc = nn.Linear(100, 10, bias=False)
             self.sigmoid = nn.Sigmoid()
             
             self.cuda()
 
         def forward(self, x):
-
             x = x.view(-1, 784)
             y = self.mlp1(x)
             y = F.relu(y)
