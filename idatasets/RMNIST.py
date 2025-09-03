@@ -31,8 +31,8 @@ class RMNIST(Dataset):
         image_stack, label_stack, tid_stack = [], [], []
 
         for tid in range(self.n_tasks):
-            images = self.dataset[tid][1][:100, :]
-            labels = self.dataset[tid][2][:100]
+            images = self.dataset[tid][1]
+            labels = self.dataset[tid][2]
 
             # Sample subset if needed
             # rand_idx = torch.randperm(images.size(0))[:int(images.size(0) * self.args.dataset_percent)]
@@ -56,13 +56,14 @@ class RMNIST(Dataset):
     def __getitem__(self, idx):
         img = self.images[idx]
         target = self.targets[idx]  
+        task = self.tids[idx]
         img = img.reshape(1, 28, 28)
 
 
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, target
+        return img, target, task
     
 
     def print_dataset_stats(self):
