@@ -1,4 +1,5 @@
 import os
+import csv
 import torch
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 import torch.optim as optim
@@ -63,7 +64,6 @@ class Learner():
             print('\nEpoch: [%d | %d] LR: %f Sess: %d' % (epoch + 1, self.args.epochs, self.state['lr'],self.args.sess))
 
             self.train(self.model, epoch)
-#             if(epoch> self.args.epochs-5):
             self.test(self.model)
         
             # append logger file
@@ -197,14 +197,13 @@ class Learner():
         self.train_loss,self.train_acc=losses.avg, top1.avg
 
     def test(self, model):
-
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
         top1 = AverageMeter()
         top5 = AverageMeter()
-        task_class_counts = np.zeros((self.args.sess + 1, self.args.num_class))
-        task_class_correct = np.zeros((self.args.sess + 1, self.args.num_class))
+        task_class_counts = np.zeros((self.args.num_task, self.args.num_class))
+        task_class_correct = np.zeros((self.args.num_task, self.args.num_class))
         
         # switch to evaluate mode
         model.eval()
@@ -265,17 +264,23 @@ class Learner():
         self.test_loss= losses.avg;self.test_acc= top1.avg
             
         acc_task = {}
-        for i in range(self.args.sess + 1):
+        for i in range(self.args.num_task):
             if task_class_counts[i].sum() == 0:
                 acc_task[i] = np.nan
             else:
                 acc_task[i] = 100 * task_class_correct[i].sum()/task_class_counts[i].sum()
-        print("\n".join([str(acc_task[k]).format(".4f") for k in acc_task.keys()]) )    
-        #print(class_acc)
-
         
-        with open(self.args.savepoint + "/acc_task_test_"+str(self.args.sess)+".pickle", 'wb') as handle:
-            pickle.dump(acc_task, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        if self.args.sess == 0:
+            with open(self.args.checkpoint + "pre_meta_training_acc.csv", "w", newline='') as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(['task'] + [f'task_{i}_acc' for i in range(20)])  
+                      
+        with open(self.args.checkpoint + "pre_meta_training_acc.csv", "a") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow([self.args.sess] + [acc_task[i] for i in acc_task.keys()])
+            
+        print("\n".join([str(acc_task[k]).format(".4f") for k in acc_task.keys()]) )    
+        #print(class_acc)s
         
     
     def meta_test(self, model, memory, inc_dataset):
@@ -395,11 +400,21 @@ class Learner():
 #                         meta_task_test_list[j].append([task_argmax,task_max, output_base_max,targets[i]])
 #             del meta_model
 
-#         class_accuracies = class_correct/class_total
-#         acc_task = class_correct.sum(axis = 1)/class_total.sum(axis = 1)
+        class_accuracies = class_correct/class_total
+        acc_task = 100 * class_correct.sum(axis = 1)/class_total.sum(axis = 1)
+        
+        if self.args.sess == 0:
+            with open(self.args.checkpoint + "post_meta_training_acc.csv", "w", newline='') as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(['task'] + [f'task_{i}_acc' for i in range(20)])  
+                      
+        with open(self.args.checkpoint + "post_meta_training_acc.csv", "a") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow([self.args.sess] + list(acc_task) + [0.0 for i in range(self.args.num_task - self.args.sess - 1)])
+         
 
-        #print(class_accuracies)    
-        print(acc_task)
+        print(f'Task accuracies: {acc_task}')
+        print(f'Avg task accuracy: {acc_task.mean()}')
         
         with open(self.args.savepoint + "/meta_task_test_list_"+str(task_idx)+".pickle", 'wb') as handle:
             pickle.dump(meta_task_test_list, handle, protocol=pickle.HIGHEST_PROTOCOL)
