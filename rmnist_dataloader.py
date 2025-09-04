@@ -123,7 +123,7 @@ class IncrementalDataset:
         print(f'Current task {self._current_task}')
         
         train_indices, for_memory = self.get_train_indices(self.train_dataset.tids, [self._current_task], memory=memory)
-        test_indices = self.get_test_indices(self.test_dataset.tids, list(range(self._current_task + 1)), memory=memory)
+        test_indices = self.get_test_indices(self.test_dataset.tids, list(range(self.args.num_task)), memory=memory)
 
         self.train_data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self._batch_size,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(train_indices, True))
         self.test_data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=self.args.test_batch,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(test_indices, False))
@@ -242,7 +242,9 @@ class IncrementalDataset:
     def get_memory(self, memory, for_memory, seed=1):
         random.seed(seed)
         memory_per_task = self.args.memory // (self.args.sess+1)
-        self._data_memory, self._tasks_memory = np.array([]), np.array([])
+        memory_per_class_per_task = memory_per_task // (self.args.num_class)
+        self._data_memory, self._tasks_memory = np.array([], dtype = np.int32), np.array([], dtype = np.int32)
+        class_labels = self.train_dataset.targets.cpu().numpy()
         mu = 1
         
         #update old memory
@@ -251,9 +253,11 @@ class IncrementalDataset:
             data_memory = np.array(data_memory, dtype="int32")
             tasks_memory = np.array(tasks_memory, dtype="int32")
             for task_idx in range(self.args.sess + 1):
-                idx = np.where(tasks_memory==task_idx)[0][:memory_per_task]
-                self._data_memory = np.concatenate([self._data_memory, np.tile(data_memory[idx], (mu,))   ])
-                self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(tasks_memory[idx], (mu,))    ])
+                classes = class_labels[data_memory]
+                for class_idx in range(self.args.num_class):
+                    idx = np.where((tasks_memory==task_idx) & (classes == class_idx))[0][:memory_per_class_per_task]
+                    self._data_memory = np.concatenate([self._data_memory, np.tile(data_memory[idx], (mu,))   ])
+                    self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(tasks_memory[idx], (mu,))    ])
                 
                 
         #add new classes to the memory
@@ -261,14 +265,19 @@ class IncrementalDataset:
 
         new_indices = np.array(new_indices, dtype="int32")
         new_tasks = np.array(new_tasks, dtype="int32")
-        idx = np.where(new_tasks==self.args.sess)[0][:memory_per_task]
-        self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))   ])
-        self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(new_tasks[idx],(mu,))    ])
+        classes = class_labels[new_indices]
+        for class_idx in range(self.args.num_class):
+            idx = np.where((new_tasks==self.args.sess) & (classes==class_idx))[0][:memory_per_class_per_task]
+            self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))])
+            self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(new_tasks[idx],(mu,))])
             
-        print(f'Length of memory: {len(self._data_memory)}')
-        tasks, counts = np.unique(self._tasks_memory, return_counts = True) 
-        task_count_dict = {int(i):int(j) for i, j in zip(tasks, counts)}
-        print(f'Samples per task in memory: {task_count_dict}')
+        print(f'Length of memory: {len(self._data_memory), self._data_memory.dtype}')
+        classes = class_labels[self._data_memory]
+        task_class_stack = np.column_stack([self._tasks_memory, classes])
+        pairs, counts = np.unique(task_class_stack, axis = 0, return_counts = True)
+        #assert all(counts == memory_per_class_per_task)
+        print(f'Memory per class per task: {memory_per_class_per_task}')
+
 
         return list(self._data_memory.astype("int32")), list(self._tasks_memory.astype("int32"))
     
