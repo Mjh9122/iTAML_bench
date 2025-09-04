@@ -52,7 +52,7 @@ class args:
     optimizer = 'sgd'
     
     epochs = 1
-    lr = 0.1
+    lr = 0.01
     train_batch = 256
     test_batch = 256
     workers = 16
@@ -61,7 +61,7 @@ class args:
     gamma = 0.5
     random_classes = False
     validation = 0
-    memory = 25000
+    memory = 1200000
     mu = 1
     beta = 0.5
     r = 1
@@ -113,8 +113,8 @@ def main():
         if(ses==0):
             torch.save(model.state_dict(), os.path.join(args.savepoint, 'base_model.pth.tar'))
             args.epochs = 1
-        if(ses==4):
-            args.lr = 0.05
+        #if(ses==4):
+        #    args.lr = 0.005
         if(start_sess==ses and start_sess!=0): 
             inc_dataset._current_task = ses
             with open(args.savepoint + "/sample_per_task_testing_"+str(args.sess-1)+".pickle", 'rb') as handle:
@@ -147,7 +147,6 @@ def main():
         memory = inc_dataset.get_memory(memory, for_memory)
 
         acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
-        #acc_task = {i: 1.0 for i in range(ses)}
         
         with open(args.savepoint + "/memory_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(memory, handle, protocol=pickle.HIGHEST_PROTOCOL)
