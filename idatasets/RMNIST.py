@@ -8,6 +8,9 @@ from torch.utils.data import Dataset
 from torchvision.datasets.folder import default_loader
 
 
+TASK_ORDER = [18, 1, 19, 8, 10, 17, 6, 13, 4, 2, 5, 14, 9, 7, 16, 11, 3, 0, 15, 12]
+#TASK_ORDER = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
 class RMNIST(Dataset):
     """ 
     Combine MNIST rotation dataset from LAMAML with the expected dataset in iTAML 
@@ -38,7 +41,7 @@ class RMNIST(Dataset):
             # rand_idx = torch.randperm(images.size(0))[:int(images.size(0) * self.args.dataset_percent)]
             # images = images[rand_idx]
             # labels = labels[rand_idx]
-            tids = torch.full((images.size(0),), tid, dtype=torch.long)
+            tids = torch.full((images.size(0),), TASK_ORDER[tid], dtype=torch.long)
 
             image_stack.append(images)
             label_stack.append(labels)

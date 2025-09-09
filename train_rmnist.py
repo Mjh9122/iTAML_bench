@@ -61,7 +61,7 @@ class args:
     gamma = 0.5
     random_classes = False
     validation = 0
-    memory = 2000000
+    memory = 30000 
     mu = 1
     beta = 0.5
     r = 1
