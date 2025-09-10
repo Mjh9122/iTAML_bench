@@ -42,7 +42,7 @@ class RMNIST(Dataset):
             # images = images[rand_idx]
             # labels = labels[rand_idx]
             tids = torch.full((images.size(0),), TASK_ORDER[tid], dtype=torch.long)
-
+            
             image_stack.append(images)
             label_stack.append(labels)
             tid_stack.append(tids)
@@ -66,7 +66,7 @@ class RMNIST(Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, target, task
+        return img, target, task, idx
     
 
     def print_dataset_stats(self):

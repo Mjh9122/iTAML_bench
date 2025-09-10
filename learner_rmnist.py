@@ -14,6 +14,7 @@ from resnet import *
 import random
 from radam import *
 
+np.random.seed(0)
 
 class ResNet_features(nn.Module):
     def __init__(self, original_model):
@@ -25,7 +26,7 @@ class ResNet_features(nn.Module):
         return x
     
 class Learner():
-    def __init__(self,model,args,trainloader,testloader, use_cuda):
+    def __init__(self,model,args,trainloader,testloader, use_cuda, memory):
         self.model=model
         self.best_model=model
         self.args=args
@@ -37,7 +38,8 @@ class Learner():
         self.testloader=testloader
         self.test_loss=0.0
         self.test_acc=0.0
-        self.train_loss, self.train_acc=0.0,0.0       
+        self.train_loss, self.train_acc=0.0,0.0  
+        self._data_memory, self._tasks_memory, self.age = memory
         
         meta_parameters = []
         normal_parameters = []
@@ -101,7 +103,7 @@ class Learner():
         bi = self.args.num_class
         bar = Bar('Processing', max=len(self.trainloader))
         
-        for batch_idx, (inputs, targets, tasks) in enumerate(self.trainloader):
+        for batch_idx, (inputs, targets, tasks, idx) in enumerate(self.trainloader):
             # measure data loading time
             data_time.update(time.time() - end)
             sessions = []
@@ -167,10 +169,9 @@ class Learner():
 #                         p.data[2*ik[0]:2*(ik[0]+1),:] = ll[ik[1]][2*ik[0]:2*(ik[0]+1),:]*(alpha) + (1-alpha)* q.data[2*ik[0]:2*(ik[0]+1),:]
 #                 else:
                 p.data = torch.mean(ll,0)*(alpha) + (1-alpha)* q.data  
-                    
                 
-            
-        
+            self.batch_update(idx)
+                    
             # measure accuracy and record loss
             prec1, prec5 = accuracy(output=outputs2, target=targets.cuda().data, topk=(1, 1))
             losses.update(loss.item(), inputs.size(0))
@@ -210,7 +211,7 @@ class Learner():
         
         end = time.time()
         bar = Bar('Processing', max=len(self.testloader))
-        for batch_idx, (inputs, targets, tasks) in enumerate(self.testloader):
+        for batch_idx, (inputs, targets, tasks, idx) in enumerate(self.testloader):
             # measure data loading time
             data_time.update(time.time() - end)
 #             print(targets)
@@ -421,7 +422,34 @@ class Learner():
 
         return acc_task
         
+    def batch_update(self, new_batch_indices):
+        if self.age < self.args.memory:
+            remaining_space = self.args.memory - self.age
+            samples_to_add = min(remaining_space, self.args.train_batch)
+            self._data_memory = np.concatenate([self._data_memory, new_batch_indices[:samples_to_add]])
+            self._tasks_memory = np.concatenate([self._tasks_memory, np.full(samples_to_add, self.args.sess, dtype=np.int32)])
+            self.age += samples_to_add
+            
+            if samples_to_add < self.args.train_batch:
+                remaining_indices = new_batch_indices[samples_to_add:]
+                for idx in remaining_indices:
+                    random_pos = np.random.randint(0, self.age + 1)
+                    if random_pos < self.args.memory:
+                        self._data_memory[random_pos] = idx
+                        self._tasks_memory[random_pos] = self.args.sess
+                    self.age += 1
+        else:
+            for idx in new_batch_indices:
+                random_pos = np.random.randint(0, self.age + 1)
+                if random_pos < self.args.memory:
+                    self._data_memory[random_pos] = idx
+                    self._tasks_memory[random_pos] = self.args.sess
+                self.age += 1
 
+        return list(self._data_memory.astype(np.int32)), list(self._tasks_memory.astype(np.int32))
+    
+    def get_memory(self):
+        return self._data_memory, self._tasks_memory, self.age
 
     def save_checkpoint(self, state, is_best, checkpoint, filename):
         if is_best:

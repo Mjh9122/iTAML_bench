@@ -84,7 +84,7 @@ class IncrementalDataset:
     def n_tasks(self):
         return len(self.increments)
     
-    def get_train_indices(self, task_ids, task_list, memory=None):
+    def get_train_indices(self, task_ids, task_list):
         task_ids_np = np.array(task_ids, dtype = int)
         sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
         sample_tasks = task_ids_np[sample_indices]
@@ -92,19 +92,9 @@ class IncrementalDataset:
         sample_indices = [int(i) for i in sample_indices] 
         sample_tasks = [torch.tensor(i) for i in sample_tasks]
 
-        for_memory = (sample_indices, sample_tasks)
-        
-        # Add indices to memory buffer (they are selected later)
-        if memory is not None:
-            memory_indices, memory_targets = memory
-            memory_indices2 = np.tile(memory_indices, (self.args.mu,))
-            all_indices = np.concatenate([memory_indices2, sample_indices])
-        else:
-            all_indices = sample_indices
-            
-        return all_indices, for_memory
+        return sample_indices
     
-    def get_test_indices(self, task_ids, task_list, memory=None):
+    def get_test_indices(self, task_ids, task_list):
         task_ids_np = np.array(task_ids, dtype = "uint32")
         sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
         sample_tasks = list(task_ids_np[sample_indices])
@@ -114,7 +104,7 @@ class IncrementalDataset:
         return list(sample_indices)
     
 
-    def new_task(self, memory=None):
+    def new_task(self):
         """ Creates a new task
 
         Args:
@@ -122,8 +112,8 @@ class IncrementalDataset:
         """
         print(f'Current task {self._current_task}')
         
-        train_indices, for_memory = self.get_train_indices(self.train_dataset.tids, [self._current_task], memory=memory)
-        test_indices = self.get_test_indices(self.test_dataset.tids, list(range(self.args.num_task)), memory=memory)
+        train_indices = self.get_train_indices(self.train_dataset.tids, [self._current_task])
+        test_indices = self.get_test_indices(self.test_dataset.tids, list(range(self.args.num_task)))
 
         self.train_data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self._batch_size,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(train_indices, True))
         self.test_data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=self.args.test_batch,shuffle=False,num_workers=16, sampler=SubsetRandomSampler(test_indices, False))
@@ -138,7 +128,7 @@ class IncrementalDataset:
 
         self._current_task += 1
 
-        return task_info, self.train_data_loader, self.test_data_loader, self.test_data_loader, for_memory
+        return task_info, self.train_data_loader, self.test_data_loader, self.test_data_loader
     
      
         
@@ -238,48 +228,6 @@ class IncrementalDataset:
         """Transforms targets for new class order."""
         return np.array(list(map(lambda x: order.index(x), y)))
     
-    
-    def get_memory(self, memory, for_memory, seed=1):
-        random.seed(seed)
-        memory_per_task = self.args.memory // (self.args.sess+1)
-        memory_per_class_per_task = memory_per_task // (self.args.num_class)
-        self._data_memory, self._tasks_memory = np.array([], dtype = np.int32), np.array([], dtype = np.int32)
-        class_labels = self.train_dataset.targets.cpu().numpy()
-        mu = 1
-        
-        #update old memory
-        if(memory is not None):
-            data_memory, tasks_memory = memory
-            data_memory = np.array(data_memory, dtype="int32")
-            tasks_memory = np.array(tasks_memory, dtype="int32")
-            for task_idx in range(self.args.sess + 1):
-                classes = class_labels[data_memory]
-                for class_idx in range(self.args.num_class):
-                    idx = np.where((tasks_memory==task_idx) & (classes == class_idx))[0][:memory_per_class_per_task]
-                    self._data_memory = np.concatenate([self._data_memory, np.tile(data_memory[idx], (mu,))   ])
-                    self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(tasks_memory[idx], (mu,))    ])
-                
-                
-        #add new classes to the memory
-        new_indices, new_tasks = for_memory
-
-        new_indices = np.array(new_indices, dtype="int32")
-        new_tasks = np.array(new_tasks, dtype="int32")
-        classes = class_labels[new_indices]
-        for class_idx in range(self.args.num_class):
-            idx = np.where((new_tasks==self.args.sess) & (classes==class_idx))[0][:memory_per_class_per_task]
-            self._data_memory = np.concatenate([self._data_memory, np.tile(new_indices[idx],(mu,))])
-            self._tasks_memory = np.concatenate([self._tasks_memory, np.tile(new_tasks[idx],(mu,))])
-            
-        print(f'Length of memory: {len(self._data_memory), self._data_memory.dtype}')
-        classes = class_labels[self._data_memory]
-        task_class_stack = np.column_stack([self._tasks_memory, classes])
-        pairs, counts = np.unique(task_class_stack, axis = 0, return_counts = True)
-        #assert all(counts == memory_per_class_per_task)
-        print(f'Memory per class per task: {memory_per_class_per_task}')
-
-
-        return list(self._data_memory.astype("int32")), list(self._tasks_memory.astype("int32"))
     
 def _get_datasets(dataset_names):
     return [_get_dataset(dataset_name) for dataset_name in dataset_names.split("-")]

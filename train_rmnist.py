@@ -105,7 +105,7 @@ def main():
                     )
         
     start_sess = int(sys.argv[1])
-    memory = None
+    memory = np.array([], dtype = 'uint32'), np.array([], dtype = 'uint32'), 0
     
     for ses in range(start_sess, args.num_task):
         args.sess=ses 
@@ -133,26 +133,29 @@ def main():
             
             
             
-        task_info, train_loader, val_loader, test_loader, for_memory = inc_dataset.new_task(memory)
+        task_info, train_loader, val_loader, test_loader = inc_dataset.new_task()
         print(f'Task info {task_info}')
         print(f'Samples per task in testing set {", ".join([str(i) + ": " + str(j) for i, j in inc_dataset.sample_per_task_testing.items()])}')
         args.sample_per_task_testing = inc_dataset.sample_per_task_testing
         
         
         main_learner=Learner(model=model,args=args,trainloader=train_loader,
-                                testloader=test_loader, use_cuda=use_cuda)
+                                testloader=test_loader, use_cuda=use_cuda, memory = memory)
         
         
         main_learner.learn()
-        memory = inc_dataset.get_memory(memory, for_memory)
-
-        acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
+        
+        memory = main_learner.get_memory()
+        _, tasks, _ = memory
+        tsk, counts = np.unique(tasks, return_counts = True)
+        print(f'Length of memory: {len(tasks)}')
+        print(f'Samples per task stats: {list(zip([int(i) for i in tsk], [int(i) for i in counts]))}')
         
         with open(args.savepoint + "/memory_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(memory, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-        with open(args.savepoint + "/acc_task_"+str(args.sess)+".pickle", 'wb') as handle:
-            pickle.dump(acc_task, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        #with open(args.savepoint + "/acc_task_"+str(args.sess)+".pickle", 'wb') as handle:
+        #    pickle.dump(acc_task, handle, protocol=pickle.HIGHEST_PROTOCOL)
             
         with open(args.savepoint + "/sample_per_task_testing_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(inc_dataset.sample_per_task_testing, handle, protocol=pickle.HIGHEST_PROTOCOL)
