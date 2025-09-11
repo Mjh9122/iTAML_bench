@@ -3,6 +3,7 @@ import csv
 import torch
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 import torch.optim as optim
+from torch.optim.lr_scheduler import MultiStepLR
 import time
 import pickle
 import torch.nn as nn
@@ -13,6 +14,7 @@ import copy
 from resnet import *
 import random
 from radam import *
+
 
 np.random.seed(0)
 
@@ -56,6 +58,8 @@ class Learner():
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
         elif(self.args.optimizer=="sgd"):
             self.optimizer = optim.SGD(meta_parameters, lr=self.args.lr, momentum=0.9, weight_decay=0.001)
+            
+        self.lr_scheduler = MultiStepLR(self.optimizer, milestones = [200], gamma = .00001)
  
 
     def learn(self):
@@ -187,12 +191,15 @@ class Learner():
                 p.data = torch.mean(ll,0)*(alpha) + (1-alpha)* q.data  
                 
             self.batch_update(orig_idx)
+            self.lr_scheduler.step()
+            
                     
             # measure accuracy and record loss
             prec1, prec5 = accuracy(output=outputs2, target=targets.cuda().data, topk=(1, 1))
             losses.update(loss.item(), inputs.size(0))
             top1.update(prec1.item(), inputs.size(0))
             top5.update(prec5.item(), inputs.size(0))
+            
             
             
             # measure elapsed time
@@ -463,7 +470,6 @@ class Learner():
                 self.age += 1
 
         return list(self._data_memory.astype(np.int32)), list(self._tasks_memory.astype(np.int32))
-    
 
     def get_batch_from_memory(self, batch_size):
         if len(self._data_memory) == 0:

@@ -27,6 +27,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from torch.autograd import Variable
 from torch.autograd import gradcheck
 import sys
@@ -52,7 +53,7 @@ class args:
     optimizer = 'sgd'
     
     epochs = 1
-    lr = 0.01
+    lr = 0.001
     train_batch = 256
     test_batch = 256
     workers = 16
@@ -71,8 +72,7 @@ print(state)
 
 # Use CUDA
 use_cuda = torch.cuda.is_available()
-seed = random.randint(1, 10000)
-seed = 2481 
+seed = 0 
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
