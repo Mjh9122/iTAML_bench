@@ -60,7 +60,10 @@ class RMNIST(Dataset):
         img = self.images[idx]
         target = self.targets[idx]  
         task = self.tids[idx]
-        img = img.reshape(1, 28, 28)
+        if isinstance(idx, int) or np.issubdtype(type(idx), np.integer):
+            img = img.reshape(1, 28, 28)
+        else:
+            img = img.reshape(-1, 1, 28, 28)
 
 
         if self.transform is not None:

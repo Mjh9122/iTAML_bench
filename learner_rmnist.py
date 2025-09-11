@@ -26,12 +26,13 @@ class ResNet_features(nn.Module):
         return x
     
 class Learner():
-    def __init__(self,model,args,trainloader,testloader, use_cuda, memory):
+    def __init__(self,model,args,trainloader,trainset, testloader, use_cuda, memory):
         self.model=model
         self.best_model=model
         self.args=args
         self.title='incremental-learning' + self.args.checkpoint.split("/")[-1]
         self.trainloader=trainloader 
+        self.trainset = trainset
         self.use_cuda=use_cuda
         self.state= {key:value for key, value in self.args.__dict__.items() if not key.startswith('__') and not callable(key)} 
         self.best_acc = 0 
@@ -103,11 +104,26 @@ class Learner():
         bi = self.args.num_class
         bar = Bar('Processing', max=len(self.trainloader))
         
-        for batch_idx, (inputs, targets, tasks, idx) in enumerate(self.trainloader):
+        for batch_idx, (inputs, targets, tasks, orig_idx) in enumerate(self.trainloader):
+            if batch_idx == 234:
+                break
             # measure data loading time
             data_time.update(time.time() - end)
             sessions = []
-             
+            
+            buffer_indices = self.get_batch_from_memory(self.args.train_batch//2)
+            
+            if len(buffer_indices) > 0:
+                buf_in, buf_tar, buf_tas, buf_idx = self.trainset[buffer_indices]
+                replacement_indices = np.random.choice(range(self.args.train_batch), size = len(buffer_indices), replace = False)
+                 
+                for buf_i, batch_i in enumerate(replacement_indices):
+                    inputs[batch_i] = buf_in[buf_i]
+                    targets[batch_i] = buf_tar[buf_i]
+                    tasks[batch_i] = buf_tas[buf_i]
+                    
+                
+            #print(inputs.shape, targets.shape, tasks.shape)
             targets_one_hot = torch.FloatTensor(inputs.shape[0], bi)
             targets_one_hot.zero_()
             targets_one_hot.scatter_(1, targets[:,None], 1)
@@ -170,7 +186,7 @@ class Learner():
 #                 else:
                 p.data = torch.mean(ll,0)*(alpha) + (1-alpha)* q.data  
                 
-            self.batch_update(idx)
+            self.batch_update(orig_idx)
                     
             # measure accuracy and record loss
             prec1, prec5 = accuracy(output=outputs2, target=targets.cuda().data, topk=(1, 1))
@@ -296,7 +312,7 @@ class Learner():
         meta_task_test_list = {}
         for task_idx in range(self.args.sess+1):
             
-            memory_data, memory_tasks = memory
+            memory_data, memory_tasks, _ = memory
             memory_data = np.array(memory_data, dtype="int32")
             memory_tasks = np.array(memory_tasks, dtype="int32")
             
@@ -318,7 +334,7 @@ class Learner():
             if(self.args.sess!=0):
                 for ep in range(1):
                     bar = Bar('Processing', max=len(meta_loader))
-                    for batch_idx, (inputs, targets, _) in enumerate(meta_loader):
+                    for batch_idx, (inputs, targets, _, _) in enumerate(meta_loader):
                         targets_one_hot = torch.FloatTensor(inputs.shape[0], self.args.num_class)
                         targets_one_hot.zero_()
                         targets_one_hot.scatter_(1, targets[:,None], 1)
@@ -349,7 +365,7 @@ class Learner():
             #META testing with given knowledge on task
             meta_model.eval()   
             loader = inc_dataset.get_custom_loader_task([task_idx], mode="test", batch_size=10)
-            for batch_idx, (inputs, targets, _) in enumerate(loader):
+            for batch_idx, (inputs, targets, _, _) in enumerate(loader):
                 if self.use_cuda:
                     inputs, targets = inputs.cuda(), targets.cuda()
                 inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
@@ -447,6 +463,20 @@ class Learner():
                 self.age += 1
 
         return list(self._data_memory.astype(np.int32)), list(self._tasks_memory.astype(np.int32))
+    
+
+    def get_batch_from_memory(self, batch_size):
+        if len(self._data_memory) == 0:
+            return np.array([], dtype = 'uint32')
+        
+        num_samples_to_retrieve = min(batch_size, len(self._data_memory))
+        sampled_indices = np.random.choice(
+            len(self._data_memory), 
+            size = num_samples_to_retrieve, 
+            replace = False
+        )
+        
+        return self._data_memory[sampled_indices]
     
     def get_memory(self):
         return self._data_memory, self._tasks_memory, self.age

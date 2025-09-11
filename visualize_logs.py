@@ -5,7 +5,7 @@ import seaborn as sns
 
 from idatasets.RMNIST import TASK_ORDER
 
-results_path = "./results/new_order/"
+results_path = "./results/rmnist/"
 column_map = {f'task_{index}_acc':f'task_{order}_acc' for index, order in enumerate(TASK_ORDER)}
 
 def plot_heat_map(df, title, out_path):

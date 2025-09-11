@@ -140,12 +140,17 @@ def main():
         
         
         main_learner=Learner(model=model,args=args,trainloader=train_loader,
-                                testloader=test_loader, use_cuda=use_cuda, memory = memory)
+                             trainset = inc_dataset.train_dataset, 
+                             testloader=test_loader, use_cuda=use_cuda, 
+                             memory = memory)
         
         
         main_learner.learn()
         
         memory = main_learner.get_memory()
+        
+        acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
+        
         _, tasks, _ = memory
         tsk, counts = np.unique(tasks, return_counts = True)
         print(f'Length of memory: {len(tasks)}')
@@ -154,8 +159,8 @@ def main():
         with open(args.savepoint + "/memory_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(memory, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-        #with open(args.savepoint + "/acc_task_"+str(args.sess)+".pickle", 'wb') as handle:
-        #    pickle.dump(acc_task, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(args.savepoint + "/acc_task_"+str(args.sess)+".pickle", 'wb') as handle:
+            pickle.dump(acc_task, handle, protocol=pickle.HIGHEST_PROTOCOL)
             
         with open(args.savepoint + "/sample_per_task_testing_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(inc_dataset.sample_per_task_testing, handle, protocol=pickle.HIGHEST_PROTOCOL)

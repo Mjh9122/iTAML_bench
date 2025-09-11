@@ -167,7 +167,7 @@ class IncrementalDataset:
             train_indices, for_memory = self.get_test_indices(self.train_dataset.task_id, task_id, mode="train", memory=None)
             data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size, shuffle=False, num_workers=4, sampler=SubsetRandomSampler(train_indices, True))
         else: 
-            test_indices, _ = self.get_train_indices(self.test_dataset.tids, task_id)
+            test_indices = self.get_train_indices(self.test_dataset.tids, task_id)
             data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, sampler=SubsetRandomSampler(test_indices, False))
             
         return data_loader
