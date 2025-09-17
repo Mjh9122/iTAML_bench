@@ -15,9 +15,6 @@ from resnet import *
 import random
 from radam import *
 
-
-np.random.seed(0)
-
 class ResNet_features(nn.Module):
     def __init__(self, original_model):
         super(ResNet_features, self).__init__()
@@ -59,7 +56,7 @@ class Learner():
         elif(self.args.optimizer=="sgd"):
             self.optimizer = optim.SGD(meta_parameters, lr=self.args.lr, momentum=0.9, weight_decay=0.001)
             
-        self.lr_scheduler = MultiStepLR(self.optimizer, milestones = [200], gamma = .00001)
+        self.lr_scheduler = MultiStepLR(self.optimizer, milestones = [200], gamma = .01)
  
 
     def learn(self):
@@ -260,7 +257,7 @@ class Learner():
             batch_time.update(time.time() - end)
             end = time.time()
             
-            pred = torch.argmax(outputs2[:,0:self.args.class_per_task*(1+self.args.sess)], 1, keepdim=False)
+            pred = torch.argmax(outputs2, 1, keepdim=False)
             pred = pred.view(1,-1)
             correct = pred.eq(targets.view(1, -1).expand_as(pred)).view(-1) 
             correct_k = float(torch.sum(correct).detach().cpu().numpy())
@@ -306,7 +303,36 @@ class Learner():
         print("\n".join([str(acc_task[k]).format(".4f") for k in acc_task.keys()]) )    
         #print(class_acc)s
         
-    
+    def eval_set(self, model, loader):
+        model.eval()
+        correct, total = 0, 0
+        for inputs, targets, tasks, _ in loader:
+            targets_one_hot = torch.FloatTensor(inputs.shape[0], self.args.num_class)
+            targets_one_hot.zero_()
+            targets_one_hot.scatter_(1, targets[:,None], 1)
+            target_set = np.unique(targets)
+            
+            if self.use_cuda:
+                    inputs, targets_one_hot,targets = inputs.cuda(), targets_one_hot.cuda(),targets.cuda()
+
+            _, outputs = model(inputs)
+            class_pre_ce=outputs.clone()
+            class_tar_ce=targets_one_hot.clone()
+
+            loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce)
+            
+            pred = torch.argmax(outputs, 1, keepdim=False)
+            pred = pred.view(1,-1)
+            batch_correct = pred.eq(targets.view(1, -1).expand_as(pred)).view(-1) 
+            correct += sum(batch_correct)
+            total += len(inputs)
+        
+        
+
+        return correct/total
+            
+        
+        
     def meta_test(self, model, memory, inc_dataset):
 
         # switch to evaluate mode
@@ -314,65 +340,63 @@ class Learner():
         
         meta_models = []   
         base_model = copy.deepcopy(model)
-        class_correct = np.zeros((self.args.sess + 1, self.args.num_class))
-        class_total = np.zeros((self.args.sess + 1, self.args.num_class)) 
+        class_correct = np.zeros((self.args.num_task, self.args.num_class))
+        class_total = np.zeros((self.args.num_task, self.args.num_class)) 
         meta_task_test_list = {}
-        for task_idx in range(self.args.sess+1):
+        for task_idx in range(self.args.num_task):
+            test_indices = inc_dataset.get_test_indices(inc_dataset.test_dataset.tids, [task_idx])
             
-            memory_data, memory_tasks, _ = memory
-            memory_data = np.array(memory_data, dtype="int32")
-            memory_tasks = np.array(memory_tasks, dtype="int32")
+            context_set = np.random.choice(test_indices, size = self.args.context_size, replace = False)
             
-            
-            mem_idx = np.where(memory_tasks == task_idx)[0]
-            meta_memory_data = memory_data[mem_idx]
-            meta_memory_tasks = memory_tasks[mem_idx]
+            test_set = [idx for idx in test_indices if idx not in context_set]
+             
             meta_model = copy.deepcopy(base_model)
+            context_loader = inc_dataset.get_custom_loader_idx(context_set, mode="test", batch_size=256) 
+            meta_optimizer = optim.Adam(meta_model.parameters(), lr=1e-4, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
             
-            meta_loader = inc_dataset.get_custom_loader_idx(meta_memory_data, mode="train", batch_size=64)
-
-            meta_optimizer = optim.Adam(meta_model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
-            
+            test_loader = inc_dataset.get_custom_loader_idx(test_set, mode="test", batch_size=256)
             meta_model.train()
 
             print("Training meta tasks:\t" , task_idx)
+            
+            print(f"Pre-training context accuracy {self.eval_set(meta_model, context_loader)}")
                 
-            #META training
-            if(self.args.sess!=0):
-                for ep in range(1):
-                    bar = Bar('Processing', max=len(meta_loader))
-                    for batch_idx, (inputs, targets, _, _) in enumerate(meta_loader):
-                        targets_one_hot = torch.FloatTensor(inputs.shape[0], self.args.num_class)
-                        targets_one_hot.zero_()
-                        targets_one_hot.scatter_(1, targets[:,None], 1)
-                        target_set = np.unique(targets)
+            #META training 
+            bar = Bar('Processing', max=len(context_loader))
+            for batch_idx, (inputs, targets, tasks, _) in enumerate(context_loader):
+                assert all(torch.equal(tasks[0], t) for t in tasks)
+                targets_one_hot = torch.FloatTensor(inputs.shape[0], self.args.num_class)
+                targets_one_hot.zero_()
+                targets_one_hot.scatter_(1, targets[:,None], 1)
+                target_set = np.unique(targets)
 
-                        if self.use_cuda:
-                            inputs, targets_one_hot,targets = inputs.cuda(), targets_one_hot.cuda(),targets.cuda()
-                        inputs, targets_one_hot, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets_one_hot) ,torch.autograd.Variable(targets)
+                if self.use_cuda:
+                    inputs, targets_one_hot,targets = inputs.cuda(), targets_one_hot.cuda(),targets.cuda()
+                inputs, targets_one_hot, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets_one_hot) ,torch.autograd.Variable(targets)
 
-                        _, outputs = meta_model(inputs)
-                        class_pre_ce=outputs.clone()
-                        class_tar_ce=targets_one_hot.clone()
+                _, outputs = meta_model(inputs)
+                class_pre_ce=outputs.clone()
+                class_tar_ce=targets_one_hot.clone()
 
-                        loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce)
+                loss = F.binary_cross_entropy_with_logits(class_pre_ce, class_tar_ce)
 
-                        meta_optimizer.zero_grad()
-                        loss.backward()
-                        meta_optimizer.step()
-                        bar.suffix  = '({batch}/{size})  Total: {total:} | Loss: {loss:.4f}'.format(
-                                        batch=batch_idx + 1,
-                                        size=len(meta_loader),
-                                        total=bar.elapsed_td,
-                                        loss=loss)
-                        bar.next()
-                    bar.finish()
+                meta_optimizer.zero_grad()
+                loss.backward()
+                meta_optimizer.step()
+                bar.suffix  = '({batch}/{size})  Total: {total:} | Loss: {loss:.4f}'.format(
+                                batch=batch_idx + 1,
+                                size=len(context_loader),
+                                total=bar.elapsed_td,
+                                loss=loss)
+                bar.next()
+            bar.finish()
 
+            print(f"Post-training context accuracy {self.eval_set(meta_model, context_loader)}")
             
             #META testing with given knowledge on task
             meta_model.eval()   
-            loader = inc_dataset.get_custom_loader_task([task_idx], mode="test", batch_size=10)
-            for batch_idx, (inputs, targets, _, _) in enumerate(loader):
+            for batch_idx, (inputs, targets, tasks, _) in enumerate(test_loader):
+                assert all(torch.equal(tasks[0], t) for t in tasks)
                 if self.use_cuda:
                     inputs, targets = inputs.cuda(), targets.cuda()
                 inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
@@ -434,7 +458,7 @@ class Learner():
                       
         with open(self.args.checkpoint + "post_meta_training_acc.csv", "a") as csv_file:
             writer = csv.writer(csv_file)
-            writer.writerow([self.args.sess] + list(acc_task) + [0.0 for i in range(self.args.num_task - self.args.sess - 1)])
+            writer.writerow([self.args.sess] + list(acc_task))
          
 
         print(f'Task accuracies: {acc_task}')

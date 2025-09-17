@@ -41,14 +41,13 @@ import rmnist_dataloader as data
 from learner_rmnist import Learner
 
 class args:
-
     checkpoint = "results/rmnist/"
     savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
     data_path = "../Datasets/RMNIST/"
     num_class = 10
     class_per_task = 10
     num_task = 20
-    test_samples_per_class = 1000
+    test_samples_per_task = 10000
     dataset = "rmnist"
     optimizer = 'sgd'
     
@@ -56,16 +55,13 @@ class args:
     lr = 0.001
     train_batch = 256
     test_batch = 256
+    context_size = 90
     workers = 16
     sess = 0
-    schedule = [5,10,15]
     gamma = 0.5
-    random_classes = False
-    validation = 0
     memory = 30000 
     mu = 1
     beta = 0.5
-    r = 1
     
 state = {key:value for key, value in args.__dict__.items() if not key.startswith('__') and not callable(key)}
 print(state)
@@ -97,7 +93,7 @@ def main():
                         args = args,
                         random_order=args.random_classes,
                         shuffle=True,
-                        seed=1,
+                        seed=seed,
                         batch_size=args.train_batch,
                         workers=args.workers,
                         validation_split=args.validation,
@@ -112,9 +108,6 @@ def main():
         
         if(ses==0):
             torch.save(model.state_dict(), os.path.join(args.savepoint, 'base_model.pth.tar'))
-            args.epochs = 1
-        #if(ses==4):
-        #    args.lr = 0.005
         if(start_sess==ses and start_sess!=0): 
             inc_dataset._current_task = ses
             with open(args.savepoint + "/sample_per_task_testing_"+str(args.sess-1)+".pickle", 'rb') as handle:
@@ -123,7 +116,6 @@ def main():
             args.sample_per_task_testing = sample_per_task_testing
         
         if ses>0: 
-            args.epochs = 1
             path_model=os.path.join(args.savepoint, 'session_'+str(ses-1) + '_model_best.pth.tar')  
             prev_best=torch.load(path_model)
             model.load_state_dict(prev_best)

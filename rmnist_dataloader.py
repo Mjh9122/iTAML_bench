@@ -50,7 +50,7 @@ class IncrementalDataset:
         shuffle=True,
         workers=10,
         batch_size=128,
-        seed=1,
+        seed=0,
         increment=10,
         validation_split=0.
     ):
