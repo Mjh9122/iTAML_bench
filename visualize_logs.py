@@ -2,10 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torch
 
 from idatasets.RMNIST import TASK_ORDER
 
-results_path = "./results/rmnist/"
+results_path = "./results/seed20_run1/"
 column_map = {f'task_{index}_acc':f'task_{order}_acc' for index, order in enumerate(TASK_ORDER)}
 
 def plot_heat_map(df, title, out_path):
@@ -24,27 +25,83 @@ def plot_heat_map(df, title, out_path):
     plt.title(title)
     plt.tight_layout()
     plt.savefig(out_path)
+    
+def get_stats(result):
+    nt = result.size(0)
+    baseline = result[0]
+    
+    # Standard metrics
+    acc = result.diag()
+    fin = result[nt - 1]
+    bwt = result[nt - 1] - acc
+
+    fwt = torch.zeros(nt)
+    for t in range(1, nt):
+        fwt[t] = result[t - 1, t] - baseline[t]
+
+    # Additional metrics
+    retained_acc = []
+    learned_acc = []
+    future_acc = []
+
+    for t in range(nt):
+        learned_acc.append(result[t, t].item())
+
+        if t > 0:
+            retained = result[t, :t].mean().item()
+        else:
+            retained = 0.0
+        retained_acc.append(retained)
+
+        if t < nt - 1:
+            future = result[t, t + 1:].mean().item()
+        else:
+            future = 0.0
+        future_acc.append(future)
+        
+
+    print(' '.join(['%.4f' % r for r in baseline]))
+    print('|')
+    for row in range(result.size(0)):
+        print(' '.join(['%.4f' % r for r in result[row]]))
+    print('')
+    print('Diagonal Accuracy: %.4f' % acc.mean())
+    print('Final Accuracy: %.4f' % fin.mean())
+    print('Backward: %.4f' % bwt.mean())
+    print('Forward:  %.4f' % fwt.mean())
+
+    print('\nRetained Accuracy per Task:')
+    print(' '.join(['%.4f' % r for r in retained_acc]))
+
+    print('\nLearned Accuracy per Task:')
+    print(' '.join(['%.4f' % r for r in learned_acc]))
+
+    print('\nFuture Accuracy per Task:')
+    print(' '.join(['%.4f' % r for r in future_acc]))
+        
+    # Return summary stats
+    stats = [
+        acc.mean(),
+        fin.mean(),
+        bwt.mean(),
+        fwt.mean(),
+        np.mean(retained_acc),
+        np.mean(learned_acc),
+        np.mean(future_acc)
+    ]
+
+    return stats
      
 
 if __name__ == '__main__':
-    pre_in_path = results_path + 'pre_meta_training_acc.csv'
-    pre_out_path = results_path + 'Pre_meta_training_task_accuracies.png'
-    pre_title = 'Heatmap of Pre-meta-training Task Accuracies'
-    pre_df = pd.read_csv(pre_in_path, index_col = 0)
-    plot_heat_map(pre_df, pre_title, pre_out_path)
-
-    
     post_in_path = results_path + 'post_meta_training_acc.csv' 
     post_out_path = results_path + 'Post_meta_training_task_accuracies.png'
     post_title = 'Heatmap of Post-meta-training Task Accuracies'
     post_df = pd.read_csv(post_in_path, index_col = 0)
+    
+    results = torch.from_numpy(post_df.values).float()
+    
+    get_stats(results)
+    
     plot_heat_map(post_df, post_title, post_out_path)
    
-    print(f'Pre-meta-training acc > Post-meta-training acc count', np.sum((pre_df.values > post_df.values) & (post_df.values != 0))) 
-    post_zeros = post_df.values == 0
-    combined_np = post_df.values.copy()
-    combined_np[post_zeros] = pre_df.values[post_zeros]
-    combined_df = pd.DataFrame(combined_np, index = pre_df.index, columns = pre_df.columns) 
-    combined_out_path = results_path + 'Combined_task_accuracies.png'
-    combined_title = 'Task Accuracies'
-    plot_heat_map(combined_df, combined_title, combined_out_path)

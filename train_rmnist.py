@@ -41,7 +41,7 @@ import rmnist_dataloader as data
 from learner_rmnist import Learner
 
 class args:
-    checkpoint = "results/rmnist/"
+    checkpoint = "results/seed20_run1/"
     savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
     data_path = "../Datasets/RMNIST/"
     num_class = 10
@@ -50,9 +50,11 @@ class args:
     test_samples_per_task = 10000
     dataset = "rmnist"
     optimizer = 'sgd'
+    random_classes = False
+    validation = 0
     
     epochs = 1
-    lr = 0.001
+    lr = 0.01
     train_batch = 256
     test_batch = 256
     context_size = 90
@@ -68,7 +70,7 @@ print(state)
 
 # Use CUDA
 use_cuda = torch.cuda.is_available()
-seed = 0 
+seed = 20 
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
