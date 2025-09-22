@@ -56,7 +56,7 @@ class Learner():
         elif(self.args.optimizer=="sgd"):
             self.optimizer = optim.SGD(meta_parameters, lr=self.args.lr, momentum=0.9, weight_decay=0.001)
             
-        self.lr_scheduler = MultiStepLR(self.optimizer, milestones = [200], gamma = .01)
+        self.lr_scheduler = MultiStepLR(self.optimizer, milestones = [200], gamma = .1)
  
 
     def learn(self):
@@ -64,7 +64,6 @@ class Learner():
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.', 'Best Acc'])
             
         for epoch in range(0, self.args.epochs):
-            self.adjust_learning_rate(epoch)
             print('\nEpoch: [%d | %d] LR: %f Sess: %d' % (epoch + 1, self.args.epochs, self.state['lr'],self.args.sess))
 
             self.train(self.model, epoch)
@@ -359,7 +358,8 @@ class Learner():
 
             print("Training meta tasks:\t" , task_idx)
             
-            print(f"Pre-training context accuracy {self.eval_set(meta_model, context_loader)}")
+            pre_train_context_acc = self.eval_set(meta_model, context_loader)
+            pre_train_test_acc = self.eval_set(meta_model, context_loader)
                 
             #META training 
             bar = Bar('Processing', max=len(context_loader))
@@ -391,7 +391,7 @@ class Learner():
                 bar.next()
             bar.finish()
 
-            print(f"Post-training context accuracy {self.eval_set(meta_model, context_loader)}")
+            print(f"Meta-Training Context Accuracy Delta {self.eval_set(meta_model, context_loader) - pre_train_context_acc :.4f}")
             
             #META testing with given knowledge on task
             meta_model.eval()   
@@ -412,6 +412,8 @@ class Learner():
                     class_total[task_idx, key] += 1
                     if(correct[i]==1):
                         class_correct[task_idx, key] += 1 
+                        
+            print(f'Meta-Training Testing Accuracy Delta {np.sum(class_correct[task_idx])/np.sum(class_total[task_idx]) - pre_train_test_acc: .4f}')
 
             
 # #           META testing - no knowledge on task
