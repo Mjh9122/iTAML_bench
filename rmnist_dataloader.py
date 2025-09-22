@@ -85,6 +85,7 @@ class IncrementalDataset:
         return len(self.increments)
     
     def get_train_indices(self, task_ids, task_list):
+        # Get indices of samples whose task is in task list
         task_ids_np = np.array(task_ids, dtype = int)
         sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
         sample_tasks = task_ids_np[sample_indices]
@@ -95,6 +96,7 @@ class IncrementalDataset:
         return sample_indices
     
     def get_test_indices(self, task_ids, task_list):
+        # Get indices of samples whose task is in task list and also update sample_per_task_testing
         task_ids_np = np.array(task_ids, dtype = "uint32")
         sample_indices = np.where(np.isin(task_ids_np, task_list))[0]
         sample_tasks = list(task_ids_np[sample_indices])
@@ -132,7 +134,7 @@ class IncrementalDataset:
     
      
         
-    # for verification   
+    # for verification unused I believe
     def get_galary(self, task, batch_size=10):
         indexes = []
         dict_ind = {}
@@ -150,7 +152,7 @@ class IncrementalDataset:
     
         return data_loader
     
-    
+    # Get a dataloader based on index, used by the learner class. 
     def get_custom_loader_idx(self, indexes, mode="train", batch_size=10, shuffle=True):
      
         if(mode=="train"):
@@ -160,7 +162,7 @@ class IncrementalDataset:
     
         return data_loader
     
-    
+    # Get a dataloader based on task, unused rn
     def get_custom_loader_task(self, task_id, mode="train", batch_size=10, shuffle=False): 
         if(mode=="train"):
             assert False
@@ -172,6 +174,7 @@ class IncrementalDataset:
             
         return data_loader
 
+    # Setup data, apply transforms
     def _setup_data(self, datasets, path, random_order=False, seed=1, increment=10, validation_split=0.):
         self.increments = []
         self.class_order = []

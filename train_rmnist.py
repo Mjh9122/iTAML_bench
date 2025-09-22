@@ -41,18 +41,20 @@ import rmnist_dataloader as data
 from learner_rmnist import Learner
 
 class args:
+    # Place to put all logs and intermediate results
     checkpoint = "results/seed20_run1/"
     savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
+    
+    # Place where dataset is stores
     data_path = "../Datasets/RMNIST/"
+    
+    # Self explanatory 
     num_class = 10
     class_per_task = 10
     num_task = 20
     test_samples_per_task = 10000
     dataset = "rmnist"
     optimizer = 'sgd'
-    random_classes = False
-    validation = 0
-    
     epochs = 1
     lr = 0.01
     train_batch = 256
@@ -64,6 +66,12 @@ class args:
     memory = 30000 
     mu = 1
     beta = 0.5
+    
+    # Shuffle classes?
+    random_classes = False
+    
+    # Use validation split?
+    validation = 0
     
 state = {key:value for key, value in args.__dict__.items() if not key.startswith('__') and not callable(key)}
 print(state)
@@ -79,17 +87,16 @@ if use_cuda:
 
 def main():
     model = BasicNet1(args, 0).cuda() 
-
-
     print('  Total params: %.2fM ' % (sum(p.numel() for p in model.parameters())/1000000.0))
 
-
+    # Create dirs to save logs
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
     if not os.path.isdir(args.savepoint):
         mkdir_p(args.savepoint)
     np.save(args.checkpoint + "/seed.npy", seed)
     
+    # Create dataset
     inc_dataset = data.IncrementalDataset(
                         dataset_name=args.dataset,
                         args = args,
@@ -101,8 +108,12 @@ def main():
                         validation_split=args.validation,
                         increment=args.class_per_task,
                     )
-        
+    
+    # Should be 0 unless for some reason you want to skip in the task order
     start_sess = int(sys.argv[1])
+    
+    # Initialize memory 
+    # data_memory, task_memory, age
     memory = np.array([], dtype = 'uint32'), np.array([], dtype = 'uint32'), 0
     
     for ses in range(start_sess, args.num_task):
@@ -126,30 +137,33 @@ def main():
                 memory = pickle.load(handle)
             
             
-            
+        # Get dataloaders for the new tasks
         task_info, train_loader, val_loader, test_loader = inc_dataset.new_task()
         print(f'Task info {task_info}')
         print(f'Samples per task in testing set {", ".join([str(i) + ": " + str(j) for i, j in inc_dataset.sample_per_task_testing.items()])}')
         args.sample_per_task_testing = inc_dataset.sample_per_task_testing
         
         
+        # Main training loop, train on new train loader, test on the test set with no task adaptation
         main_learner=Learner(model=model,args=args,trainloader=train_loader,
                              trainset = inc_dataset.train_dataset, 
                              testloader=test_loader, use_cuda=use_cuda, 
                              memory = memory)
         
-        
         main_learner.learn()
-        
         memory = main_learner.get_memory()
         
+        # Test on all tasks after adapting to thier task. 
         acc_task = main_learner.meta_test(main_learner.best_model, memory, inc_dataset)
         
+        # Count tasks in the memory buffer for sanity check
         _, tasks, _ = memory
         tsk, counts = np.unique(tasks, return_counts = True)
         print(f'Length of memory: {len(tasks)}')
         print(f'Samples per task stats: {list(zip([int(i) for i in tsk], [int(i) for i in counts]))}')
         
+        
+        # Save all
         with open(args.savepoint + "/memory_"+str(args.sess)+".pickle", 'wb') as handle:
             pickle.dump(memory, handle, protocol=pickle.HIGHEST_PROTOCOL)
 

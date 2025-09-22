@@ -36,11 +36,7 @@ class RMNIST(Dataset):
         for tid in range(self.n_tasks):
             images = self.dataset[tid][1]
             labels = self.dataset[tid][2]
-
-            # Sample subset if needed
-            # rand_idx = torch.randperm(images.size(0))[:int(images.size(0) * self.args.dataset_percent)]
-            # images = images[rand_idx]
-            # labels = labels[rand_idx]
+            
             tids = torch.full((images.size(0),), TASK_ORDER[tid], dtype=torch.long)
             
             image_stack.append(images)
