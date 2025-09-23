@@ -73,6 +73,14 @@ class args:
     # Use validation split?
     validation = 0
     
+    # Task Order
+    #task_order = [18, 1, 19, 8, 10, 17, 6, 13, 4, 2, 5, 14, 9, 7, 16, 11, 3, 0, 15, 12]
+    #task_order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    task_order = [8, 28, 9, 29, 12, 32, 13, 33, 16, 36, 17, 37, 0, 20, 1, 21, 4, 24, 5, 25]
+    
+    # Recurring?
+    recurring = True
+    
 state = {key:value for key, value in args.__dict__.items() if not key.startswith('__') and not callable(key)}
 print(state)
 

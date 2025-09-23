@@ -204,8 +204,8 @@ class IncrementalDataset:
                 test_dataset.targets = test_dataset.labels
 
             elif(self.dataset_name=="rmnist"):
-                train_dataset = dataset.base_dataset(root=path, train = True, transform = trsf_train)
-                test_dataset = dataset.base_dataset(root=path, train = False, transform = trsf_test)
+                train_dataset = dataset.base_dataset(root=path, train = True, transform = trsf_train, task_order = self.args.task_order, recurring = self.args.recurring)
+                test_dataset = dataset.base_dataset(root=path, train = False, transform = trsf_test, task_order = self.args.task_order, recurring = self.args.recurring)
                 
                 
             order = [i for i in range(self.args.num_class)]

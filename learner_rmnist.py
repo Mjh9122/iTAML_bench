@@ -105,7 +105,7 @@ class Learner():
         bar = Bar('Processing', max=len(self.trainloader))
         
         for batch_idx, (inputs, targets, tasks, orig_idx) in enumerate(self.trainloader):
-            if batch_idx == 234:
+            if len(inputs) != self.args.train_batch:
                 break
             # measure data loading time
             data_time.update(time.time() - end)
