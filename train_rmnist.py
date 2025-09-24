@@ -42,7 +42,7 @@ from learner_rmnist import Learner
 
 class args:
     # Place to put all logs and intermediate results
-    checkpoint = "results/seed20_run1/"
+    checkpoint = "results/rec_seed20_1/"
     savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
     
     # Place where dataset is stores

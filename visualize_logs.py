@@ -4,13 +4,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 
-from idatasets.RMNIST import TASK_ORDER
-
-results_path = "./results/seed20_run1/"
-column_map = {f'task_{index}_acc':f'task_{order}_acc' for index, order in enumerate(TASK_ORDER)}
+results_path = "./results/rec_seed20_1/"
 
 def plot_heat_map(df, title, out_path):
-    df = df.rename(columns = column_map)
     
     plt.figure(figsize=(8, 6))
     ax = sns.heatmap(df, vmin = 0, vmax = 100, cmap='viridis', fmt=".4f", cbar_kws={'shrink': 0.8, 'pad': 0.15})
@@ -65,10 +61,10 @@ def get_stats(result):
     for row in range(result.size(0)):
         print(' '.join(['%.4f' % r for r in result[row]]))
     print('')
-    print('Diagonal Accuracy: %.4f' % acc.mean())
-    print('Final Accuracy: %.4f' % fin.mean())
-    print('Backward: %.4f' % bwt.mean())
-    print('Forward:  %.4f' % fwt.mean())
+    print('Diagonal Accuracy: %.4f' % (acc.mean()/100))
+    print('Final Accuracy: %.4f' % (fin.mean()/100))
+    print('Backward: %.4f' % (bwt.mean()/100))
+    print('Forward:  %.4f' % (fwt.mean()/100))
 
     print('\nRetained Accuracy per Task:')
     print(' '.join(['%.4f' % r for r in retained_acc]))
