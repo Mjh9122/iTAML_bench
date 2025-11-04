@@ -87,6 +87,8 @@ print(state)
 
 # Use CUDA
 use_cuda = torch.cuda.is_available()
+
+
 seed = 10 
 random.seed(seed)
 np.random.seed(seed)
