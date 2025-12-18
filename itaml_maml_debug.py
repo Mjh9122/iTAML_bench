@@ -23,6 +23,7 @@ from pathlib import Path
 from non_stationary_datasets import get_dataset_registry
 from torch.utils.data import IterableDataset
 
+
 class EpisodicBatcher(IterableDataset):
     def __init__(self, dataset, n_way: int, k_shot: int, q_query: int, num_tasks: int):
         self.dataset = dataset
@@ -101,107 +102,86 @@ def episodes_to_batch(episodes, args):
 
         return Qx_b, Qy_b, dom_x, dom_y, Sg_b, Qg_b
 
-
-class args:
-    # Place to put all logs and intermediate results
-    checkpoint = "results/non_stat/"
-    savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
-    data_path = "Datasets"
-    
-    n_way = 5
-    k_shot = 5
-    q_query = 15
-    n_tasks = 4
-    seed = 0
-    dataset = 'vggflowers'
-    lr = 0.01
-    device = 'cuda'
-    epochs = 1000
-   
-    r = 5
-    beta = .1
-    
-    mlflow_uri = "mlruns"
-    mlflow_experiment_name = "iTAML baseline"
-
-def observe(model, optimizer, Qx, Qy, dom_x, dom_y, args, update_model = True, verbose=True):
+def observe(model, inner_opt, outer_opt, Qx, Qy, dom_x, dom_y, args, update_model=True, verbose=True):
     model.train()
     
-    # Qx.shape = [num_tasks, samples_per_task, *sample_shape]
     num_tasks = dom_x.shape[0]
     samples_per_task = dom_x.shape[1]
-    sample_shape = dom_x.shape[2:]
-    
     num_classes = args.n_way
     
-    # iTAML convention
-    targets = dom_y
-    inputs = dom_x
+    Sy = dom_y
+    Sx = dom_x
     
-    inputs = inputs.to(args.device)
-    targets = targets.to(args.device)
+    Sx = Sx.to(args.device)
+    Sy = Sy.to(args.device)
     Qx = Qx.to(args.device)
     Qy = Qy.to(args.device)
     
     # Create one-hot targets
-    targets_one_hot = torch.FloatTensor(num_tasks, samples_per_task, num_classes).to(args.device)
-    targets_one_hot.zero_()
-    targets_one_hot.scatter_(2, targets[:, :, None], 1)
-    targets_one_hot = targets_one_hot.to(args.device)
+    Sy_one_hot = torch.FloatTensor(num_tasks, samples_per_task, num_classes).to(args.device)
+    Sy_one_hot.zero_()
+    Sy_one_hot.scatter_(2, Sy[:, :, None], 1)
     
-    # Save base model parameters
-    base_params = [p.clone().detach() for p in model.parameters()]
+    Qy_one_hot = torch.FloatTensor(num_tasks, Qy.shape[1], num_classes).to(args.device)
+    Qy_one_hot.zero_()
+    Qy_one_hot.scatter_(2, Qy[:, :, None], 1)
     
-    # task-specific adapted parameters
-    task_params = []
-    
-    # Per-task metrics
     task_metrics = []
-    
     train_loss = 0.0
-   
-     
+    
+    # Save initial model state
+    initial_state = {k: v.clone() for k, v in model.state_dict().items()}
+    outer_opt.zero_grad()
+    
     for task_idx in range(num_tasks):
-        # Reset params to base for this task
-        for p, base_p in zip(model.parameters(), base_params):
-            p.data.copy_(base_p)
+        # Reset model to initial state for each task
+        model.load_state_dict(initial_state)
         
-        # Task specific inputs/targets
-        task_inputs = inputs[task_idx]
-        task_targets_one_hot = targets_one_hot[task_idx]
-        task_targets = targets[task_idx]
+        task_Sx = Sx[task_idx]
+        task_Sy_one_hot = Sy_one_hot[task_idx]
+        task_Sy = Sy[task_idx]
         
-        # Task test data
-        task_test_x = Qx[task_idx]
-        task_test_y = Qy[task_idx]
+        task_Qx = Qx[task_idx]
+        task_Qy_one_hot = Qy_one_hot[task_idx]
+        task_Qy = Qy[task_idx]
         
         task_loss_history = []
         
+        # Inner loop adaptation
         for _ in range(args.r):
-            optimizer.zero_grad()
+            inner_opt.zero_grad()
             
-            _, task_outputs = model(task_inputs)
-            loss = F.binary_cross_entropy_with_logits(task_outputs, task_targets_one_hot)
-            loss.backward()
-            optimizer.step()
+            _, task_logits = model(task_Sx)
+            inner_loss = F.binary_cross_entropy_with_logits(task_logits, task_Sy_one_hot)
+            inner_loss.backward()
+            inner_opt.step()
             
-            task_loss_history.append(loss.item())
-            train_loss += loss.item()
+            task_loss_history.append(inner_loss.item())
+            train_loss += inner_loss.item()
         
-        task_params.append([p.data.clone() for p in model.parameters()])
+        # Evaluate on support set
+        model.eval()
+        with torch.no_grad(): 
+            logits_S, _ = model(task_Sx)
+            preds_train = logits_S.argmax(dim=-1)
+            train_acc = (preds_train == task_Sy).float().mean().item()
         
+        # Outer loop update
+        model.train()
+        outer_opt.zero_grad() 
+        logits_Q, _ = model(task_Qx)
+        
+        if update_model:
+            outer_loss = F.binary_cross_entropy_with_logits(logits_Q, task_Qy_one_hot) 
+            outer_loss.backward()
+        
+        # Evaluate on query set
+        model.eval()
         with torch.no_grad():
-            model.eval()
+            logits_Q_eval, _ = model(task_Qx)
+            preds_Q_eval = logits_Q_eval.argmax(dim=-1)
+            test_acc = (preds_Q_eval == task_Qy).float().mean().item()
             
-            logits_train, _ = model(task_inputs)
-            preds_train = logits_train.argmax(dim=-1)
-            train_acc = (preds_train == task_targets).float().mean().item()
-            
-            logits_test, _ = model(task_test_x)
-            preds_test = logits_test.argmax(dim=-1)
-            test_acc = (preds_test == task_test_y).float().mean().item()
-            
-            model.train()
         
         task_metric = {
             'task_idx': task_idx,
@@ -220,22 +200,6 @@ def observe(model, optimizer, Qx, Qy, dom_x, dom_y, args, update_model = True, v
             print(f"  Train Acc: {train_acc*100:.2f}%")
             print(f"  Test Acc: {test_acc*100:.2f}%")
     
-    alpha = np.exp(-args.beta / num_tasks)
-    if update_model:
-        if verbose:
-            print(f"Alpha = exp(-{args.beta}/{num_tasks}) = {alpha:.4f}")
-    
-        for i, (p, base_p) in enumerate(zip(model.parameters(), base_params)):
-            avg_task_param = torch.mean(
-                torch.stack([task_p[i] for task_p in task_params]), 
-                dim=0
-            )
-            p.data.copy_(alpha * avg_task_param + (1 - alpha) * base_p)
-            
-    else:
-        for i, (p, base_p) in enumerate(zip(model.parameters(), base_params)):
-            p.data.copy_(base_p) 
-
     avg_loss = np.mean([m['final_loss'] for m in task_metrics])
     avg_task_train_acc = np.mean([m['train_acc'] for m in task_metrics])
     avg_task_test_acc = np.mean([m['test_acc'] for m in task_metrics])
@@ -245,7 +209,6 @@ def observe(model, optimizer, Qx, Qy, dom_x, dom_y, args, update_model = True, v
         'avg_task_train_acc': avg_task_train_acc,
         'avg_task_test_acc': avg_task_test_acc,
         'task_metrics': task_metrics,
-        'alpha': alpha,
     }
     
     if verbose:
@@ -256,6 +219,31 @@ def observe(model, optimizer, Qx, Qy, dom_x, dom_y, args, update_model = True, v
     
     return avg_loss, avg_task_train_acc, avg_task_test_acc, results
 
+class args:
+    # Place to put all logs and intermediate results
+    checkpoint = "results/non_stat/"
+    savepoint = "models/" + "/".join(checkpoint.split("/")[1:])
+    data_path = "Datasets"
+    
+    n_way = 5
+    k_shot = 5
+    q_query = 15
+    n_tasks = 4
+    seed = 0
+    dataset = 'vggflowers'
+    inner_lr = 0.01
+    outer_lr = 0.001
+    device = 'cuda'
+    epochs = 1000
+    dropout_p = .2
+   
+    r = 5
+    beta = .1
+    
+    mlflow_uri = "mlruns"
+    mlflow_experiment_name = "iTAML baseline"
+
+    
 
 if __name__ == "__main__":
     # CUDA + seeding
@@ -275,19 +263,17 @@ if __name__ == "__main__":
     
     with mlflow.start_run():
         mlflow.log_params({
-            'n_way': args.n_way,
-            'k_shot': args.k_shot,
-            'q_query': args.q_query,
-            'n_tasks': args.n_tasks,
-            'seed': args.seed,
-            'dataset': args.dataset,
-            'lr': args.lr,
-            'device': args.device,
-            'r': args.r,
-            'beta': args.beta,
-            'epochs':args.epochs,
+           'n_way': args.n_way,
+           'k_shot': args.k_shot,
+           'q_query': args.q_query,
+          'dataset': args.dataset,
+           'inner_lr': args.inner_lr,
+           'outer_lr': args.outer_lr,
+           'device': args.device,
+           'r': args.r,
+           'beta': args.beta,
+           'epochs':args.epochs,
         })
-        
         # Dataset
         dataset_reg, names = get_dataset_registry(args.data_path)
         test_dataset_reg, _ = get_dataset_registry(args.data_path, split = 'test')
@@ -296,14 +282,21 @@ if __name__ == "__main__":
         test_ds = test_dataset_reg['vggflowers']
 
         # Model + optim
-        model = NonStationaryClassifier(dropout_p = .5, classes = args.n_way).to(args.device)
-        optimizer = torch.optim.SGD(model.parameters(), args.lr)
+        model = NonStationaryClassifier(dropout_p = args.dropout_p, classes = args.n_way).to(args.device)
+        inner_opt = torch.optim.SGD(model.parameters(), args.inner_lr)
+        outer_opt = torch.optim.SGD(model.parameters(), args.outer_lr)
+
+        best_test_acc = 0
+        best_model_state = None
+        patience = 100
+        no_improve = 0
     
         for epoch in tqdm(range(args.epochs)):
             # Get episodes, combine into batch
             episodes = [ds.sample_n_way_k_shot(args.n_way, args.k_shot, args.q_query) for _ in range(args.n_tasks)]
             Qx_b, Qy_b, dom_x, dom_y, Sg_b, Qg_b = episodes_to_batch(episodes, args)
-            avg_loss, train_acc, test_acc, results = observe(model, optimizer, Qx_b, Qy_b, dom_x, dom_y, args, verbose=False)
+            
+            avg_loss, train_acc, test_acc, results = observe(model, inner_opt, outer_opt, Qx_b, Qy_b, dom_x, dom_y, args, verbose=False)
             
             mlflow.log_metrics({
                 'train_loss': avg_loss,
@@ -311,17 +304,31 @@ if __name__ == "__main__":
                 'test_accuracy': test_acc,
                 'accuracy_gap': train_acc - test_acc
             }, step=epoch)
+
+            if test_acc > best_test_acc:
+                best_test_acc = test_acc
+                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                no_improve = 0
+            else:
+                no_improve += 1
+
+            if no_improve >= patience:
+                print(f"Early stop at epoch {epoch}, best was {best_test_acc:.4f}")
+                model.load_state_dict(best_model_state)
+                break
     
         train_ds_testing_episodes = [ds.sample_n_way_k_shot(args.n_way, args.k_shot, args.q_query) for _ in range(100)]
         Qx_b, Qy_b, dom_x, dom_y, Sg_b, Qg_b = episodes_to_batch(train_ds_testing_episodes, args) 
-        _, _, final_train_acc, results = observe(model, optimizer, Qx_b, Qy_b, dom_x, dom_y, args, update_model=False, verbose=False)
+        _, _, final_train_acc, results = observe(model, inner_opt, outer_opt, Qx_b, Qy_b, dom_x, dom_y, args, update_model=False, verbose=False)
         mlflow.log_metrics({
             'final_train_accuracy': final_train_acc
         })
         
         test_ds_testing_episodes = [test_ds.sample_n_way_k_shot(args.n_way, args.k_shot, args.q_query) for _ in range(100)]
         Qx_b, Qy_b, dom_x, dom_y, Sg_b, Qg_b = episodes_to_batch(test_ds_testing_episodes, args) 
-        _, _, final_test_acc, results = observe(model, optimizer, Qx_b, Qy_b, dom_x, dom_y, args, update_model=False, verbose=True)
+        _, _, final_test_acc, results = observe(model, inner_opt, outer_opt, Qx_b, Qy_b, dom_x, dom_y, args, update_model=False, verbose=False)
         mlflow.log_metrics({
             'final_test_accuracy': final_test_acc
         }) 
+        
+        
